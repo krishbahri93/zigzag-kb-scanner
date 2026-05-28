@@ -2,7 +2,7 @@ name: KWM Scan
 on:
   workflow_dispatch:                 # lets you run it manually too
   schedule:
-    - cron: "*/5 3-10 * * 1-5"       # every 5 min, ~NSE hours (UTC, Mon-Fri); GitHub timing is best-effort
+    - cron: "*/30 3-10 * * 1-5"       # every 5 min, ~NSE hours (UTC, Mon-Fri); GitHub timing is best-effort
 permissions:
   contents: write
 jobs:
