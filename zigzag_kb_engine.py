@@ -8,11 +8,22 @@ each stock through a dual-trade state machine.
 
 Output: results.json for the dashboard.
 
+INTRADAY MODE (default ON for Dhan):
+  When ENABLE_INTRADAY is True and the data source is Dhan, the engine
+  fetches today's intraday bars and appends them as a "today partial daily
+  bar" to the daily series. This lets signals fire in real time during
+  market hours — matching the Pine indicator's behavior on TradingView.
+
+  Signals fired on today's partial bar are flagged provisional=True
+  (may revert before daily close). Signals on closed daily bars are
+  provisional=False (locked in).
+
 Environment:
-    KWM_DATA_SOURCE  = "dhan" (real-time) or "yahoo" (delayed/free)
-    DHAN_CLIENT_ID   = Dhan credential
-    DHAN_ACCESS_TOKEN = Dhan token (daily refresh)
-    DHAN_SCRIP_URL   = Dhan scrip master CSV (optional override)
+    KWM_DATA_SOURCE   = "dhan" (real-time) or "yahoo" (delayed/free)
+    DHAN_CLIENT_ID    = Dhan credential
+    DHAN_ACCESS_TOKEN = Dhan token (daily refresh required)
+    DHAN_SCRIP_URL    = Dhan scrip master CSV (optional override)
+    ZIGZAG_INTRADAY   = "true"/"false" (default true) — disable intraday integration
 
 Designed to run in Google Colab or as a GitHub Actions job.
 """
@@ -60,6 +71,12 @@ DHAN_SCRIP_URL = os.environ.get(
     "DHAN_SCRIP_URL",
     "https://images.dhan.co/api-data/api-scrip-master.csv"
 )
+
+# Intraday data integration — appends today's partial bar to the daily series
+# so that intraday price action triggers signals in real-time, like the Pine indicator.
+# Set to False to fall back to "yesterday-close-only" behavior.
+ENABLE_INTRADAY = os.environ.get("ZIGZAG_INTRADAY", "true").lower() in ("1", "true", "yes")
+INTRADAY_INTERVAL = 15  # minutes per intraday bar (15 = good balance of responsiveness vs API load)
 
 
 # ============================================================================
@@ -168,6 +185,92 @@ def _fetch_dhan_daily(symbol, days=1100):
     return out.dropna()
 
 
+def _fetch_today_partial(symbol):
+    """Fetch today's intraday bars from Dhan and aggregate into a single
+    "today's partial daily bar" with combined OHLCV. Returns a 1-row
+    DataFrame indexed by today's date in Asia/Kolkata, or None if no
+    intraday data is available (pre-market, weekend, holiday, error).
+
+    This is the heart of intraday signal detection: by appending this
+    bar to the daily series, the engine sees today's high/low/close
+    in real time and fires signals when intraday price crosses fib levels.
+    """
+    today = dt.date.today()
+    # No intraday data on weekends
+    if today.weekday() >= 5:
+        return None
+
+    import time
+    try:
+        dh = _dhan_client()
+    except Exception:
+        return None
+
+    sid = _secid.get(symbol.upper())
+    if not sid:
+        return None
+
+    time.sleep(0.15)  # throttle
+
+    # Try the standard intraday method (dhanhq v2+). Falls back gracefully.
+    r = None
+    try:
+        if hasattr(dh, 'intraday_minute_data'):
+            r = dh.intraday_minute_data(
+                security_id=sid,
+                exchange_segment="NSE_EQ",
+                instrument_type="EQUITY",
+                from_date=str(today),
+                to_date=str(today),
+                interval=INTRADAY_INTERVAL,
+            )
+        elif hasattr(dh, 'historical_minute_data'):
+            # Older method name in some dhanhq versions
+            r = dh.historical_minute_data(
+                security_id=sid,
+                exchange_segment="NSE_EQ",
+                instrument_type="EQUITY",
+                from_date=str(today),
+                to_date=str(today),
+                interval=INTRADAY_INTERVAL,
+            )
+    except Exception:
+        return None
+
+    if not r:
+        return None
+    d = r.get("data") if isinstance(r, dict) else None
+    if not d:
+        return None
+    closes = d.get("close")
+    if not closes or len(closes) == 0:
+        return None
+
+    # Aggregate the intraday bars into a single daily-equivalent bar.
+    try:
+        today_open   = float(d["open"][0])
+        today_high   = float(max(d["high"]))
+        today_low    = float(min(d["low"]))
+        today_close  = float(d["close"][-1])  # last intraday close ≈ current LTP
+        today_volume = float(sum(d.get("volume", [0] * len(closes))))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+    # Index by today's date in Asia/Kolkata for consistency with daily data
+    try:
+        ts = pd.Timestamp(today).tz_localize("Asia/Kolkata")
+    except Exception:
+        ts = pd.Timestamp(today)
+
+    return pd.DataFrame({
+        "Open":   [today_open],
+        "High":   [today_high],
+        "Low":    [today_low],
+        "Close":  [today_close],
+        "Volume": [today_volume],
+    }, index=[ts])
+
+
 def _resample_weekly(d):
     """Aggregate daily bars into weekly (Friday close)."""
     if d is None or len(d) == 0:
@@ -178,15 +281,42 @@ def _resample_weekly(d):
 
 
 def get_tf(symbol, tf):
-    """Fetch OHLCV for one symbol at one timeframe. Returns DataFrame or None."""
+    """Fetch OHLCV for one symbol at one timeframe. Returns DataFrame or None.
+
+    For 1D + Dhan: if today's daily bar isn't yet in Dhan's daily API
+    (which it usually isn't until post-close), we append today's
+    intraday-aggregated partial bar so the engine sees live price action.
+    """
     src = os.environ.get("KWM_DATA_SOURCE", DATA_SOURCE).lower()
     if src == "dhan":
         if tf == "1D":
-            return _fetch_dhan_daily(symbol, days=1100)
+            df = _fetch_dhan_daily(symbol, days=1100)
+            if df is None or len(df) == 0:
+                return df
+            if not ENABLE_INTRADAY:
+                return df
+            # Check if today is already represented in the daily series.
+            # (Post-close, Dhan eventually updates the daily endpoint with today's bar.)
+            today = dt.date.today()
+            try:
+                last_date = df.index[-1].date()
+            except Exception:
+                last_date = None
+            if last_date is not None and last_date >= today:
+                return df  # today's daily bar already present, no need for intraday
+            if today.weekday() >= 5:
+                return df  # weekend, no intraday available anyway
+            # Append today's partial bar from intraday data
+            partial = _fetch_today_partial(symbol)
+            if partial is not None and len(partial) > 0:
+                df = pd.concat([df, partial])
+            return df
         if tf == "1W":
+            # Weekly: keep using only completed weekly bars for now.
+            # Intraday-into-weekly aggregation is a future enhancement.
             return _resample_weekly(_fetch_dhan_daily(symbol, days=1800))
         raise ValueError(f"Unsupported tf: {tf}")
-    # Yahoo (default)
+    # Yahoo (default) — no intraday integration; yfinance intraday is rate-limited and unreliable
     if tf == "1D":
         return _fetch_yahoo(symbol, "1d", "3y")
     if tf == "1W":
@@ -436,14 +566,18 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
     """Pick the single most-relevant signal category for the scanner.
 
     Categories (priority order — most actionable first):
-      "Triggered T2"     — last close > 0.68, less than recent_bars old (or current bar provisional)
-      "Triggered T1"     — last close > 0.382, less than recent_bars old (or current bar provisional)
-      "Active T2"        — In T2, triggered older than recent_bars
-      "Active T1"        — In T1, triggered older than recent_bars
-      "In Zone T2"       — between 0.618 and 0.68 (T1 played, waiting for T2 entry)
-      "In Zone T1"       — between 0.32 and 0.382 (waiting for T1 entry)
+      "Triggered T2"     — close > 0.68 (intraday or recent close)
+      "Triggered T1"     — close > 0.382 (intraday or recent close)
+      "Active T2"        — In T2, triggered on a CLOSED daily bar more than recent_bars ago
+      "Active T1"        — In T1, triggered on a CLOSED daily bar more than recent_bars ago
+      "In Zone T2"       — between 0.618 and 0.68
+      "In Zone T1"       — between 0.32 and 0.382
       "Approaching T1"   — below 0.32, within APPROACH_BAND_PCT
       None               — outside our band of interest, or fully played
+
+    PROV flag semantics:
+      True  = signal evaluated on TODAY's intraday partial bar (may revert before close)
+      False = signal confirmed on a CLOSED daily bar (locked in, won't change)
 
     Returns (signal_str, active_trade, provisional_bool, confirmed_bar, ltp).
     """
@@ -460,52 +594,64 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
     t1_hi = sim["t1_hi"]
     e1_lo = sim["e1_lo"]
 
-    # Active trade context
+    # Detect if the latest bar is today's intraday partial (not a closed daily bar)
+    try:
+        last_bar_date = df.index[-1].date()
+        today = dt.date.today()
+        is_intraday = (last_bar_date == today and today.weekday() < 5)
+    except Exception:
+        is_intraday = False
+
+    # ----- Active states (state machine fired entry on some past bar) -----
     if state == 2:
-        # In T1
-        bars_since = bar_idx - sim["t1_entry_bar"] if sim["t1_entry_bar"] is not None else 999
+        # In T1 — engine processed a bar where close crossed 0.382 with confirmation
+        entry_bar = sim["t1_entry_bar"]
+        bars_since = bar_idx - entry_bar if entry_bar is not None else 999
+        # If entry happened on today's intraday partial bar → PROV (entry may not survive close)
+        entered_today_intraday = (is_intraday and entry_bar == bar_idx)
+        if entered_today_intraday:
+            return ("Triggered T1", "T1", True, entry_bar, ltp)
         if bars_since < recent_bars:
-            return ("Triggered T1", "T1", False, sim["t1_entry_bar"], ltp)
-        return ("Active T1", "T1", False, sim["t1_entry_bar"], ltp)
+            return ("Triggered T1", "T1", False, entry_bar, ltp)
+        return ("Active T1", "T1", False, entry_bar, ltp)
 
     if state == 4:
-        bars_since = bar_idx - sim["t2_entry_bar"] if sim["t2_entry_bar"] is not None else 999
+        # In T2 — engine processed a bar where close crossed 0.68 with confirmation
+        entry_bar = sim["t2_entry_bar"]
+        bars_since = bar_idx - entry_bar if entry_bar is not None else 999
+        entered_today_intraday = (is_intraday and entry_bar == bar_idx)
+        if entered_today_intraday:
+            return ("Triggered T2", "T2", True, entry_bar, ltp)
         if bars_since < recent_bars:
-            return ("Triggered T2", "T2", False, sim["t2_entry_bar"], ltp)
-        return ("Active T2", "T2", False, sim["t2_entry_bar"], ltp)
+            return ("Triggered T2", "T2", False, entry_bar, ltp)
+        return ("Active T2", "T2", False, entry_bar, ltp)
 
     if state == 5:
-        # Fully played — not surfaced in scanner (only Performance tab)
+        # Fully played — not surfaced in scanner (Performance tab handles)
         return None
 
-    # Waiting states (1 or 3) — check provisional triggers + zone position
+    # ----- Waiting states — state machine never fired (e.g., weak volume), classify by LTP -----
+    # In these branches, is_intraday makes the signal PROV because we're judging by an open bar
     if state == 3:
-        # Waiting T2 entry
+        # Waiting T2 entry (T1 already played)
         if ltp > t1_hi:
-            # Provisional T2 trigger (bar still forming, price above 0.68)
-            return ("Triggered T2", "T2", True, bar_idx, ltp)
+            return ("Triggered T2", "T2", True, bar_idx, ltp)  # always PROV (engine didn't confirm)
         if t1_lo <= ltp <= t1_hi:
-            return ("In Zone T2", "T2", False, None, ltp)
-        # Below 0.618 — Approaching T2? Not in spec, skip.
+            return ("In Zone T2", "T2", is_intraday, None, ltp)
         return None
 
     if state == 1:
-        # Waiting T1 entry. But price might have raced higher without triggering
-        # (e.g. weak volume on the breakout, so state machine didn't advance).
-        # Classify based on where price currently sits.
+        # Waiting T1 entry
         if ltp > t1_hi:
-            # Provisional T2 trigger via jump-in
             return ("Triggered T2", "T2", True, bar_idx, ltp)
         if t1_lo <= ltp <= t1_hi:
-            # Price is in T2 entry zone (provisional — T1 didn't formally trigger)
-            return ("In Zone T2", "T2", False, None, ltp)
+            return ("In Zone T2", "T2", is_intraday, None, ltp)
         if ltp > e1_hi:
-            # Provisional T1 trigger
             return ("Triggered T1", "T1", True, bar_idx, ltp)
         if e1_lo <= ltp <= e1_hi:
-            return ("In Zone T1", "T1", False, None, ltp)
+            return ("In Zone T1", "T1", is_intraday, None, ltp)
         if ltp < e1_lo and ltp >= e1_lo * (1 - APPROACH_BAND_PCT):
-            return ("Approaching T1", "T1", False, None, ltp)
+            return ("Approaching T1", "T1", is_intraday, None, ltp)
         return None
 
     return None
