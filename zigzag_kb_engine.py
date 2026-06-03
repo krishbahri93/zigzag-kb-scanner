@@ -619,11 +619,21 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
     t1_hi = sim["t1_hi"]
     e1_lo = sim["e1_lo"]
 
-    # Detect if the latest bar is today's intraday partial (not a closed daily bar)
+    # Detect if the latest bar is today's intraday partial AND market is still open.
+    # After 3:30 PM IST on a weekday, today's intraday data reflects the day's close
+    # (market is shut, no more updates) → treat as confirmed, drop PROV.
     try:
         last_bar_date = df.index[-1].date()
-        today = dt.date.today()
-        is_intraday = (last_bar_date == today and today.weekday() < 5)
+        ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+        now_ist = dt.datetime.now(ist)
+        today_ist = now_ist.date()
+        # Market hours: 9:15 AM - 3:30 PM IST. Use 3:30 PM as the "session over" threshold.
+        is_after_close = (now_ist.hour > 15) or (now_ist.hour == 15 and now_ist.minute >= 30)
+        is_intraday = (
+            last_bar_date == today_ist
+            and today_ist.weekday() < 5
+            and not is_after_close
+        )
     except Exception:
         is_intraday = False
 
@@ -655,12 +665,13 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
         # Fully played — not surfaced in scanner (Performance tab handles)
         return None
 
-    # ----- Waiting states — state machine never fired (e.g., weak volume), classify by LTP -----
-    # In these branches, is_intraday makes the signal PROV because we're judging by an open bar
+    # ----- Waiting states — state machine never fired, classify by LTP. -----
+    # PROV here = today's bar still forming (is_intraday). After market close it's False:
+    # the daily bar is locked, even if filters didn't pass the signal is what it is.
     if state == 3:
         # Waiting T2 entry (T1 already played)
         if ltp > t1_hi:
-            return ("Triggered T2", "T2", True, bar_idx, ltp)  # always PROV (engine didn't confirm)
+            return ("Triggered T2", "T2", is_intraday, bar_idx, ltp)
         if t1_lo <= ltp <= t1_hi:
             return ("In Zone T2", "T2", is_intraday, None, ltp)
         return None
@@ -668,11 +679,11 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
     if state == 1:
         # Waiting T1 entry
         if ltp > t1_hi:
-            return ("Triggered T2", "T2", True, bar_idx, ltp)
+            return ("Triggered T2", "T2", is_intraday, bar_idx, ltp)
         if t1_lo <= ltp <= t1_hi:
             return ("In Zone T2", "T2", is_intraday, None, ltp)
         if ltp > e1_hi:
-            return ("Triggered T1", "T1", True, bar_idx, ltp)
+            return ("Triggered T1", "T1", is_intraday, bar_idx, ltp)
         if e1_lo <= ltp <= e1_hi:
             return ("In Zone T1", "T1", is_intraday, None, ltp)
         if ltp < e1_lo and ltp >= e1_lo * (1 - APPROACH_BAND_PCT):
@@ -1065,6 +1076,7 @@ def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sect
             rows.append({
                 "sym": sym, "sector": sector, "tf": r["tf"],
                 "signal": r["signal"], "active_trade": r["active_trade"],
+                "action": _clean(r.get("action", None)) if "action" in r else None,
                 "provisional": bool(r["provisional"]),
                 "A": _clean(r["A"]), "B": _clean(r["B"]),
                 "drop_pct": _clean(r["drop_pct"]),
