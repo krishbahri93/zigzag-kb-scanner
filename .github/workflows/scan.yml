@@ -1,9 +1,9 @@
 name: ZigZag KB Scan
 on:
-  workflow_dispatch:                 # lets you run it manually
+  workflow_dispatch:
   schedule:
-    - cron: "*/5 3-10 * * 1-5"       # every 5 min during NSE hours (~8:30 AM - 3:30 PM IST)
-    - cron: "5 10,11 * * 1-5"        # once at 3:35 PM IST + once at 4:35 PM IST to capture the daily close
+    - cron: "*/5 3-10 * * 1-5"       # every 5 min during 8:30 AM - 3:30 PM IST
+    - cron: "5 10,11 * * 1-5"        # one extra at 3:35 PM IST + one at 4:35 PM IST
 permissions:
   contents: write
 jobs:
@@ -21,11 +21,11 @@ jobs:
           DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
           KWM_DATA_SOURCE: dhan
         run: python run_scan.py
-      - name: publish results.json
+      - name: publish JSON feeds
         run: |
           git config user.name "zigzag-kb-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add results.json
+          git add results.json performance.json
           git commit -m "update results $(date -u +%H:%M)" || echo "no change"
           git push
 
