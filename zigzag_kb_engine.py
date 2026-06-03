@@ -515,9 +515,13 @@ def classify_signal(sim, df, recent_bars=RECENT_BARS):
 # PER-STOCK ANALYSIS
 # ============================================================================
 
-def analyze_one(symbol, tf, dev_pct=DEV_PCT_DEFAULT):
-    """Analyze one symbol at one timeframe. Returns row dict or None."""
-    df = get_tf(symbol, tf)
+def analyze_one(symbol, tf, dev_pct=DEV_PCT_DEFAULT, df=None):
+    """Analyze one symbol at one timeframe. Returns row dict or None.
+
+    df: optional pre-fetched DataFrame. If None, get_tf() is called.
+    """
+    if df is None:
+        df = get_tf(symbol, tf)
     if df is None or len(df) < 30:
         return None
 
@@ -615,29 +619,53 @@ def analyze_one(symbol, tf, dev_pct=DEV_PCT_DEFAULT):
 # SCANNING — iterate over the universe
 # ============================================================================
 
-def scan(symbols, timeframes=("1D", "1W"), dev_pct=DEV_PCT_DEFAULT, verbose=False):
-    """Scan a list of symbols across given timeframes. Returns DataFrame."""
+def scan(symbols, timeframes=("1D", "1W"), dev_pct=DEV_PCT_DEFAULT, verbose=False, return_stats=False):
+    """Scan a list of symbols across given timeframes.
+
+    Returns DataFrame by default. If return_stats=True, returns (DataFrame, stats_dict).
+    The stats_dict has keys: attempted, fetched_ok, setups, sample_errors.
+    """
     rows = []
+    stats = {"attempted": 0, "fetched_ok": 0, "setups": 0, "sample_errors": []}
     for s in symbols:
         for tf in timeframes:
+            stats["attempted"] += 1
             try:
-                r = analyze_one(s, tf, dev_pct=dev_pct)
+                # Fetch step (this is what fails on Dhan auth issues)
+                df = get_tf(s, tf)
+                if df is None or len(df) < 30:
+                    continue
+                stats["fetched_ok"] += 1
+                # Analysis step (this is what produces a setup, or not)
+                r = analyze_one(s, tf, dev_pct=dev_pct, df=df)
                 if r:
                     rows.append(r)
+                    stats["setups"] += 1
             except Exception as e:
+                # Keep a tiny sample of errors for diagnostics (cap at 3)
+                if len(stats["sample_errors"]) < 3:
+                    stats["sample_errors"].append(f"{s}/{tf}: {str(e)[:120]}")
                 if verbose:
                     print(f"skip {s} {tf} - {e}")
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows)
+    df_out = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if return_stats:
+        return df_out, stats
+    return df_out
 
 
 # ============================================================================
 # OUTPUT — results.json for the dashboard
 # ============================================================================
 
-def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sectors=None):
-    """Write the scan results in the dashboard's expected schema."""
+def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sectors=None, stats=None):
+    """Write the scan results in the dashboard's expected schema.
+
+    stats: optional dict from scan(return_stats=True) used to classify run health:
+      - 'ok'        : setups found, normal
+      - 'no_data'   : <10% of fetches succeeded — almost certainly auth/API failure
+      - 'no_setups' : fetches succeeded but no qualifying setups (rare but legitimate)
+      - 'empty_universe' : no symbols to scan
+    """
     import json
 
     def _clean(v):
@@ -676,10 +704,36 @@ def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sect
             })
 
     now_ist = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
+
+    # Classify run health based on stats (if available)
+    if stats is None:
+        data_status = "ok" if rows else "no_setups"
+        stats_clean = None
+    else:
+        attempted   = int(stats.get("attempted", 0))
+        fetched_ok  = int(stats.get("fetched_ok", 0))
+        setups      = int(stats.get("setups", len(rows)))
+        if attempted == 0:
+            data_status = "empty_universe"
+        elif fetched_ok / max(attempted, 1) < 0.10:
+            data_status = "no_data"
+        elif setups == 0:
+            data_status = "no_setups"
+        else:
+            data_status = "ok"
+        stats_clean = {
+            "attempted": attempted,
+            "fetched_ok": fetched_ok,
+            "setups": setups,
+            "sample_errors": list(stats.get("sample_errors", []))[:3],
+        }
+
     data = {
         "generated_at": now_ist.isoformat(timespec="seconds"),
         "generated_label": now_ist.strftime("%H:%M IST · %d %b"),
         "deviation": deviation,
+        "data_status": data_status,
+        "stats": stats_clean,
         "rows": rows,
     }
     # allow_nan=False so any NaN that sneaks through fails loudly rather than producing invalid JSON
