@@ -639,6 +639,18 @@ def scan(symbols, timeframes=("1D", "1W"), dev_pct=DEV_PCT_DEFAULT, verbose=Fals
 def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sectors=None):
     """Write the scan results in the dashboard's expected schema."""
     import json
+
+    def _clean(v):
+        """Convert pandas NaN/NaT to None so the JSON is valid (NaN is NOT valid JSON)."""
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return v
+
     rows = []
     if not df.empty:
         for _, r in df.iterrows():
@@ -648,18 +660,19 @@ def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sect
                 "sym": sym, "sector": sector, "tf": r["tf"],
                 "signal": r["signal"], "active_trade": r["active_trade"],
                 "provisional": bool(r["provisional"]),
-                "A": r["A"], "B": r["B"], "drop_pct": r["drop_pct"],
-                "ltp": r["ltp"],
-                "t1_entry_lo": r["t1_entry_lo"], "t1_entry_hi": r["t1_entry_hi"],
-                "t1_tp_lo": r["t1_tp_lo"], "t1_tp_hi": r["t1_tp_hi"],
-                "t1_sl": r["t1_sl"],
-                "t2_entry_lo": r["t2_entry_lo"], "t2_entry_hi": r["t2_entry_hi"],
-                "t2_tp_lo": r["t2_tp_lo"], "t2_tp_hi": r["t2_tp_hi"],
-                "t2_sl": r["t2_sl"],
+                "A": _clean(r["A"]), "B": _clean(r["B"]),
+                "drop_pct": _clean(r["drop_pct"]),
+                "ltp": _clean(r["ltp"]),
+                "t1_entry_lo": _clean(r["t1_entry_lo"]), "t1_entry_hi": _clean(r["t1_entry_hi"]),
+                "t1_tp_lo": _clean(r["t1_tp_lo"]), "t1_tp_hi": _clean(r["t1_tp_hi"]),
+                "t1_sl": _clean(r["t1_sl"]),
+                "t2_entry_lo": _clean(r["t2_entry_lo"]), "t2_entry_hi": _clean(r["t2_entry_hi"]),
+                "t2_tp_lo": _clean(r["t2_tp_lo"]), "t2_tp_hi": _clean(r["t2_tp_hi"]),
+                "t2_sl": _clean(r["t2_sl"]),
                 "ema_ok": bool(r["ema_ok"]), "vol_ok": bool(r["vol_ok"]),
-                "vol_x": r["vol_x"], "rr": r["rr"],
-                "confirmed_at": r["confirmed_at"],
-                "macro_a": r["macro_a"], "macro_b": r["macro_b"],
+                "vol_x": _clean(r["vol_x"]), "rr": _clean(r["rr"]),
+                "confirmed_at": _clean(r["confirmed_at"]),
+                "macro_a": _clean(r["macro_a"]), "macro_b": _clean(r["macro_b"]),
             })
 
     now_ist = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
@@ -669,8 +682,9 @@ def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sect
         "deviation": deviation,
         "rows": rows,
     }
+    # allow_nan=False so any NaN that sneaks through fails loudly rather than producing invalid JSON
     with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, indent=2, allow_nan=False)
     return path
 
 
@@ -689,3 +703,4 @@ if __name__ == "__main__":
         print(df[["sym","tf","signal","A","B","drop_pct","ltp","rr"]])
         save_dashboard_json(df, path="/tmp/results_test.json")
         print("Saved /tmp/results_test.json")
+
