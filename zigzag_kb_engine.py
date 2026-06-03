@@ -761,9 +761,21 @@ def analyze_one(symbol, tf, dev_pct=DEV_PCT_DEFAULT, df=None):
         macro_a = float(macro[1])
         macro_b = float(macro[3])
 
+    # Map detailed signal to a coarser "action" the trader actually takes
+    if signal in ("Approaching T1", "In Zone T1", "In Zone T2"):
+        action = "Watch"
+    elif signal in ("Triggered T1", "Triggered T2"):
+        action = "Enter"
+    elif signal in ("Active T1", "Active T2"):
+        action = "Holding"
+    else:
+        action = None
+
     return dict(
         sym=symbol, tf=tf,
-        signal=signal, active_trade=active_trade, provisional=provisional,
+        signal=signal,                # detailed 7-category (kept for backwards compat)
+        action=action,                # NEW: Watch / Enter / Holding
+        active_trade=active_trade, provisional=provisional,
         A=round(float(ap), 2), B=round(float(bp), 2),
         drop_pct=round(drop_pct, 2),
         ltp=round(ltp, 2),
@@ -784,6 +796,201 @@ def analyze_one(symbol, tf, dev_pct=DEV_PCT_DEFAULT, df=None):
         macro_a=round(macro_a, 2) if macro_a else None,
         macro_b=round(macro_b, 2) if macro_b else None,
     )
+
+
+# ============================================================================
+# BACKTEST — walk every historical swing and tally completed trades
+# ============================================================================
+#
+# For each H→L pair in the ZigZag pivot list (each is a historical down-swing),
+# we run the dual-trade state machine forward from B until either:
+#   - T1 + T2 both resolve (TP hit or SL out)
+#   - A new lower L appears (B invalidated → swing dead)
+#   - End of data
+#
+# Each completed T1 or T2 trade is recorded with its R multiple, entry/exit
+# dates, and outcome. These records feed the Performance tab.
+
+def _backtest_one_swing(df, ai, ap, bi, bp, end_bar):
+    """Run state machine from B forward; collect completed trades up to end_bar.
+
+    Returns list of trade dicts with keys:
+      trade_type, entry_bar, entry_date, entry_price,
+      exit_bar, exit_date, exit_price, outcome ('win'/'loss'), r_multiple
+    """
+    rng = ap - bp
+    if rng <= 0:
+        return []
+
+    sl1   = bp + FIB_SL1   * rng
+    e1_hi = bp + FIB_E1_HI * rng       # T1 entry trigger
+    t1_lo = bp + FIB_T1_LO * rng       # T1 TP level (also T2 SL)
+    t1_hi = bp + FIB_T1_HI * rng       # T2 entry trigger
+    t2_lo = bp + FIB_T2_LO * rng       # T2 TP level
+
+    close = df["Close"].to_numpy(float)
+    high  = df["High"].to_numpy(float)
+    vol   = df["Volume"].to_numpy(float)
+    n = min(len(close), end_bar + 1)
+
+    if n <= bi + 1:
+        return []
+
+    ema9  = pd.Series(close).ewm(span=EMA_FAST, adjust=False).mean().to_numpy()
+    ema21 = pd.Series(close).ewm(span=EMA_SLOW, adjust=False).mean().to_numpy()
+    vol_sma = pd.Series(vol).rolling(VOL_AVG, min_periods=1).mean().to_numpy()
+
+    trades = []
+    state = 1
+    t1_entry_bar = None
+    t2_entry_bar = None
+
+    for k in range(bi + 1, n):
+        c_now = close[k]
+        c_prev = close[k - 1] if k > 0 else c_now
+        h_now = high[k]
+        ema_ok = (c_now > ema9[k]) and (c_now > ema21[k])
+        vol_ok = vol[k] > vol_sma[k] * VOL_MULT
+        crossed_382 = c_now > e1_hi and c_prev <= e1_hi
+        crossed_68  = c_now > t1_hi and c_prev <= t1_hi
+
+        if state == 1:
+            if crossed_68 and ema_ok and vol_ok:
+                state = 4
+                t2_entry_bar = k
+            elif crossed_382 and ema_ok and vol_ok:
+                state = 2
+                t1_entry_bar = k
+
+        elif state == 2:
+            if h_now >= t1_lo:
+                # T1 TP hit
+                trades.append({
+                    "trade_type": "T1",
+                    "entry_bar":   t1_entry_bar,
+                    "entry_date":  df.index[t1_entry_bar].isoformat() if t1_entry_bar is not None else None,
+                    "entry_price": round(e1_hi, 2),
+                    "exit_bar":    k,
+                    "exit_date":   df.index[k].isoformat(),
+                    "exit_price":  round(t1_lo, 2),
+                    "outcome":     "win",
+                    "r_multiple":  round((t1_lo - e1_hi) / (e1_hi - sl1), 2) if (e1_hi - sl1) > 0 else 0.0,
+                    "A": round(ap, 2), "B": round(bp, 2),
+                })
+                state = 3
+            elif c_now < sl1:
+                trades.append({
+                    "trade_type": "T1",
+                    "entry_bar":   t1_entry_bar,
+                    "entry_date":  df.index[t1_entry_bar].isoformat() if t1_entry_bar is not None else None,
+                    "entry_price": round(e1_hi, 2),
+                    "exit_bar":    k,
+                    "exit_date":   df.index[k].isoformat(),
+                    "exit_price":  round(sl1, 2),
+                    "outcome":     "loss",
+                    "r_multiple":  -1.0,
+                    "A": round(ap, 2), "B": round(bp, 2),
+                })
+                state = 1
+                t1_entry_bar = None
+
+        elif state == 3:
+            if crossed_68 and ema_ok and vol_ok:
+                state = 4
+                t2_entry_bar = k
+
+        elif state == 4:
+            if h_now >= t2_lo:
+                # T2 TP hit
+                trades.append({
+                    "trade_type": "T2",
+                    "entry_bar":   t2_entry_bar,
+                    "entry_date":  df.index[t2_entry_bar].isoformat() if t2_entry_bar is not None else None,
+                    "entry_price": round(t1_hi, 2),
+                    "exit_bar":    k,
+                    "exit_date":   df.index[k].isoformat(),
+                    "exit_price":  round(t2_lo, 2),
+                    "outcome":     "win",
+                    "r_multiple":  round((t2_lo - t1_hi) / (t1_hi - t1_lo), 2) if (t1_hi - t1_lo) > 0 else 0.0,
+                    "A": round(ap, 2), "B": round(bp, 2),
+                })
+                state = 5
+                break  # T2 done, no more trades from this swing
+            elif c_now < t1_lo:
+                # T2 SL = close < 0.618
+                trades.append({
+                    "trade_type": "T2",
+                    "entry_bar":   t2_entry_bar,
+                    "entry_date":  df.index[t2_entry_bar].isoformat() if t2_entry_bar is not None else None,
+                    "entry_price": round(t1_hi, 2),
+                    "exit_bar":    k,
+                    "exit_date":   df.index[k].isoformat(),
+                    "exit_price":  round(t1_lo, 2),
+                    "outcome":     "loss",
+                    "r_multiple":  -1.0,
+                    "A": round(ap, 2), "B": round(bp, 2),
+                })
+                state = 3
+                t2_entry_bar = None
+
+        elif state == 5:
+            break  # fully played
+
+    return trades
+
+
+def backtest_history(df, dev_pct=DEV_PCT_DEFAULT, window_days=None):
+    """For one stock's full history, return all completed historical trades.
+
+    window_days: if set, only count trades whose entry was within the last N days.
+    """
+    if df is None or len(df) < 30:
+        return []
+
+    # Use confirmed pivots only (no tentative) — backtesting should reflect
+    # only fully realized historical swings.
+    pivots = detect_zigzag_pivots(df, dev_pct, include_tentative=False)
+    if len(pivots) < 2:
+        return []
+
+    all_trades = []
+    n = len(df)
+    # Walk every H→L pair as a separate swing
+    for j in range(1, len(pivots)):
+        if pivots[j][2] != 'L' or pivots[j-1][2] != 'H':
+            continue
+        ai, ap, _ = pivots[j-1]
+        bi, bp, _ = pivots[j]
+
+        # End the simulation when a subsequent L makes a new low (B invalidated)
+        # or when the next H confirms (this swing's window has closed for new trades).
+        end_bar = n - 1
+        for k in range(j + 1, len(pivots)):
+            if pivots[k][2] == 'L' and pivots[k][1] < bp:
+                end_bar = pivots[k][0] - 1
+                break
+            # The next H pivot means this swing was a tradeable lifecycle; keep walking
+            # to capture trades that complete after the new H formed. The state machine
+            # will handle its own exit conditions.
+
+        swing_trades = _backtest_one_swing(df, ai, ap, bi, bp, end_bar)
+        all_trades.extend(swing_trades)
+
+    # Apply window filter
+    if window_days is not None and all_trades:
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=window_days)
+        # Compare without timezone if needed
+        def _within_window(t):
+            try:
+                d = dt.datetime.fromisoformat(t["entry_date"].replace("Z", "+00:00"))
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=dt.timezone.utc)
+                return d >= cutoff
+            except Exception:
+                return True  # keep if we can't parse
+        all_trades = [t for t in all_trades if _within_window(t)]
+
+    return all_trades
 
 
 # ============================================================================
@@ -908,6 +1115,164 @@ def save_dashboard_json(df, path="results.json", deviation=DEV_PCT_DEFAULT, sect
         "rows": rows,
     }
     # allow_nan=False so any NaN that sneaks through fails loudly rather than producing invalid JSON
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, allow_nan=False)
+    return path
+
+
+# ============================================================================
+# PERFORMANCE — aggregate backtest results across all stocks
+# ============================================================================
+
+def backtest_all(symbols, timeframes=("1D", "1W"), dev_pct=DEV_PCT_DEFAULT,
+                 window_days=365, sectors=None, verbose=False):
+    """Run backtest across a universe. Returns flat list of trades with sym/tf attached."""
+    all_trades = []
+    for s in symbols:
+        for tf in timeframes:
+            try:
+                df = get_tf(s, tf)
+                if df is None or len(df) < 30:
+                    continue
+                # Drop today's partial bar from backtest (only completed bars count for history)
+                today = dt.date.today()
+                try:
+                    last_date = df.index[-1].date()
+                    if last_date == today:
+                        df = df.iloc[:-1]
+                except Exception:
+                    pass
+                trades = backtest_history(df, dev_pct=dev_pct, window_days=window_days)
+                for t in trades:
+                    t["sym"] = s
+                    t["tf"] = tf
+                    if sectors:
+                        t["sector"] = sectors.get(s, "—")
+                all_trades.extend(trades)
+            except Exception as e:
+                if verbose:
+                    print(f"backtest skip {s} {tf}: {e}")
+    return all_trades
+
+
+def _aggregate_performance(trades):
+    """Aggregate a list of trade records into Performance-tab statistics."""
+    if not trades:
+        return {
+            "summary": {"total_trades": 0, "wins": 0, "losses": 0,
+                        "win_rate": 0.0, "avg_r": 0.0, "total_r": 0.0},
+            "breakdown": [],
+            "monthly": [],
+            "top_performers": [],
+            "worst_performers": [],
+            "distribution": {"buckets": [], "counts": []},
+        }
+
+    total = len(trades)
+    wins = sum(1 for t in trades if t["outcome"] == "win")
+    losses = total - wins
+    total_r = sum(t["r_multiple"] for t in trades)
+    avg_r = total_r / total if total else 0.0
+
+    summary = {
+        "total_trades": total,
+        "wins": wins,
+        "losses": losses,
+        "win_rate": round(wins / total, 3) if total else 0.0,
+        "avg_r": round(avg_r, 2),
+        "total_r": round(total_r, 1),
+    }
+
+    # Breakdown by (trade_type, tf)
+    bd = {}
+    for t in trades:
+        key = (t["trade_type"], t["tf"])
+        b = bd.setdefault(key, {"trades": 0, "wins": 0, "total_r": 0.0})
+        b["trades"] += 1
+        if t["outcome"] == "win":
+            b["wins"] += 1
+        b["total_r"] += t["r_multiple"]
+    breakdown = []
+    for (tt, tf), v in sorted(bd.items()):
+        breakdown.append({
+            "trade_type": tt, "tf": tf,
+            "trades": v["trades"], "wins": v["wins"],
+            "win_rate": round(v["wins"] / v["trades"], 3) if v["trades"] else 0.0,
+            "avg_r": round(v["total_r"] / v["trades"], 2) if v["trades"] else 0.0,
+            "total_r": round(v["total_r"], 1),
+        })
+
+    # Monthly aggregation (by entry date)
+    monthly = {}
+    for t in trades:
+        try:
+            entry_d = dt.datetime.fromisoformat(t["entry_date"].replace("Z", "+00:00"))
+            key = entry_d.strftime("%Y-%m")
+        except Exception:
+            continue
+        m = monthly.setdefault(key, {"trades": 0, "wins": 0, "total_r": 0.0})
+        m["trades"] += 1
+        if t["outcome"] == "win":
+            m["wins"] += 1
+        m["total_r"] += t["r_multiple"]
+    monthly_list = []
+    for month in sorted(monthly.keys()):
+        v = monthly[month]
+        monthly_list.append({
+            "month": month,
+            "trades": v["trades"], "wins": v["wins"],
+            "total_r": round(v["total_r"], 1),
+        })
+
+    # Best and worst performers (by total R across all trades on that stock)
+    by_sym = {}
+    for t in trades:
+        sym = t["sym"]
+        s = by_sym.setdefault(sym, {"trades": 0, "total_r": 0.0, "tf": t["tf"]})
+        s["trades"] += 1
+        s["total_r"] += t["r_multiple"]
+    perfs = [{"sym": k, "trades": v["trades"], "total_r": round(v["total_r"], 1), "tf": v["tf"]}
+             for k, v in by_sym.items()]
+    perfs_sorted = sorted(perfs, key=lambda x: x["total_r"], reverse=True)
+    top_performers = perfs_sorted[:10]
+    worst_performers = sorted(perfs_sorted[-10:], key=lambda x: x["total_r"])
+
+    # Distribution (R-multiple buckets)
+    buckets_def = [
+        ("≤ -1R",   lambda r: r <= -0.99),
+        ("-1 to 0", lambda r: -0.99 < r <= 0),
+        ("0 to 1",  lambda r: 0 < r <= 1.0),
+        ("1 to 2",  lambda r: 1.0 < r <= 2.0),
+        ("2 to 3",  lambda r: 2.0 < r <= 3.0),
+        ("> 3R",    lambda r: r > 3.0),
+    ]
+    counts = [sum(1 for t in trades if fn(t["r_multiple"])) for _, fn in buckets_def]
+    distribution = {
+        "buckets": [b[0] for b in buckets_def],
+        "counts": counts,
+    }
+
+    return {
+        "summary": summary,
+        "breakdown": breakdown,
+        "monthly": monthly_list,
+        "top_performers": top_performers,
+        "worst_performers": worst_performers,
+        "distribution": distribution,
+    }
+
+
+def save_performance_json(trades, path="performance.json", window_days=365):
+    """Compute aggregate stats from trades and write to performance.json."""
+    import json
+    aggs = _aggregate_performance(trades)
+    now_ist = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    data = {
+        "generated_at": now_ist.isoformat(timespec="seconds"),
+        "generated_label": now_ist.strftime("%H:%M IST · %d %b"),
+        "window_days": window_days,
+        **aggs,
+    }
     with open(path, "w") as f:
         json.dump(data, f, indent=2, allow_nan=False)
     return path
