@@ -3,28 +3,26 @@
 
 from zigzag_kb_engine import scan, save_dashboard_json, load_nifty500
 
-# ── Watchlist — edit these to the names you actively want to scan ──
-WATCHLIST = [
-    "RELIANCE","TCS","HDFCBANK","ICICIBANK","INFY","SBIN","BHARTIARTL","ITC","LT","HINDUNILVR",
-    "KOTAKBANK","AXISBANK","BAJFINANCE","MARUTI","SUNPHARMA","TATAMOTORS","TITAN","ULTRACEMCO","ASIANPAINT","NESTLEIND",
-    "WIPRO","HCLTECH","JSWSTEEL","TATASTEEL","POWERGRID","NTPC","ADANIENT","ADANIPORTS","M&M","TRENT",
-    "DMART","COALINDIA","ONGC","BPCL","HDFCLIFE","SBILIFE","BAJAJFINSV","DLF","IRCTC","PIIND",
-    # Add your reference charts here:
-    "DEEPAKNTR","TEGA","360ONE","CDSL","GODFRYPHLP","DIXON",
-]
+# Use the full Nifty 500 (auto-loaded from NSE)
+SYMBOLS, SECTORS = load_nifty500()
 
 TIMEFRAMES = ["1D", "1W"]   # Daily + Weekly per spec
 DEVIATION = 35.0            # ZigZag deviation %
 
-print(f"Scanning {len(WATCHLIST)} stocks at {DEVIATION}% deviation, timeframes={TIMEFRAMES}")
+print(f"Scanning {len(SYMBOLS)} stocks at {DEVIATION}% deviation, timeframes={TIMEFRAMES}")
 
-# Get sector labels for the dashboard
-_, SECTORS = load_nifty500()
+# Run the scan — return_stats=True so we can write a health status to results.json
+df, stats = scan(SYMBOLS, timeframes=TIMEFRAMES, dev_pct=DEVIATION,
+                 verbose=False, return_stats=True)
 
-# Run the scan
-df = scan(WATCHLIST, timeframes=TIMEFRAMES, dev_pct=DEVIATION, verbose=False)
+# Write the dashboard feed (includes data_status for auth/API failure detection)
+save_dashboard_json(df, path="results.json", deviation=DEVIATION,
+                    sectors=SECTORS, stats=stats)
 
-# Write the dashboard feed
-save_dashboard_json(df, path="results.json", deviation=DEVIATION, sectors=SECTORS)
+print(f"wrote results.json — {len(df)} setups across {len(SYMBOLS)} stocks")
+print(f"stats: attempted={stats['attempted']}  fetched_ok={stats['fetched_ok']}  setups={stats['setups']}")
+if stats.get("sample_errors"):
+    print("sample errors:")
+    for e in stats["sample_errors"]:
+        print(f"  {e}")
 
-print(f"wrote results.json — {len(df)} setups across {len(WATCHLIST)} stocks")
