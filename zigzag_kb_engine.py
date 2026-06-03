@@ -334,16 +334,40 @@ def get_tf(symbol, tf):
 # that extreme and flip direction. The first pivot is established by whichever
 # direction the price moves enough from the start.
 
-def detect_zigzag_pivots(df, dev_pct):
+def detect_zigzag_pivots(df, dev_pct, include_tentative=True):
     """Detect ZigZag pivots using percentage-deviation algorithm.
 
     Returns list of (bar_index, price, kind) tuples in chronological order,
     where kind is 'H' (pivot high) or 'L' (pivot low).
 
-    Algorithm: maintain a "running extreme" in the current trend direction.
-    A pivot confirms when price moves >= dev_pct against the trend from the
-    running extreme. Only confirmed pivots are returned (the unconfirmed
-    running extreme at the end is excluded).
+    Algorithm:
+      Phase 1: walk forward tracking running highest high AND lowest low
+               until one of them is exceeded by a `dev_pct` move in the
+               opposite direction — that establishes the first confirmed
+               pivot and the trend direction.
+      Phase 2: track the running extreme in the trend direction. A pivot
+               is confirmed when price moves >= dev_pct against the trend.
+
+    `include_tentative` (default True): also append the current running
+    extreme as a "tentative" pivot at the end. This matters for the
+    strategy because:
+
+      - The Pine ZigZag library only returns CONFIRMED pivots (those
+        where the reversal already happened). For a still-forming swing
+        low, you wouldn't see anything until price has rallied 35%.
+      - But for Fibonacci-based setups, the swing low IS the swing low
+        the moment it forms — we don't need the rally to confirm it
+        before drawing fib levels off it.
+      - The 0.382 retracement trigger fires at a 28% rally from B (less
+        than the 35% ZigZag threshold), so a confirmed trigger CAN fire
+        on a tentative B.
+      - By exposing the tentative pivot, the scanner surfaces setups
+        days or weeks earlier — Approaching T1, In Zone T1 zones become
+        visible while the bounce is still forming, not only after the
+        explosive day that confirms B.
+
+    Set include_tentative=False to get the strict Pine-library behavior
+    (only confirmed pivots).
     """
     if df is None or len(df) < 10:
         return []
@@ -355,10 +379,7 @@ def detect_zigzag_pivots(df, dev_pct):
 
     pivots = []  # list of (bar_idx, price, 'H'|'L')
 
-    # Phase 1 — establish initial direction.
-    # Track BOTH the running highest high and the running lowest low until we
-    # see a move large enough to flip direction. Whichever extreme came first
-    # becomes the first pivot.
+    # Phase 1 — establish initial direction
     hi_idx, hi_price = 0, high[0]
     lo_idx, lo_price = 0, low[0]
     direction = None
@@ -369,25 +390,20 @@ def detect_zigzag_pivots(df, dev_pct):
             hi_idx, hi_price = i, high[i]
         if low[i] < lo_price:
             lo_idx, lo_price = i, low[i]
-        # Did the running high drop enough to confirm direction = down?
         if low[i] <= hi_price * (1 - threshold) and hi_idx < i:
-            # The high was set BEFORE this drop. Confirm hi as first pivot.
             pivots.append((hi_idx, hi_price, 'H'))
             direction = 'down'
             ext_idx, ext_price = lo_idx, lo_price
-            # Continue from here in phase 2
-        # Or did the running low rise enough to confirm direction = up?
         elif high[i] >= lo_price * (1 + threshold) and lo_idx < i:
             pivots.append((lo_idx, lo_price, 'L'))
             direction = 'up'
             ext_idx, ext_price = hi_idx, hi_price
         i += 1
 
-    # If we never established direction, no confirmed pivots
     if direction is None:
         return []
 
-    # Phase 2 — track the running extreme in current direction; flip on reversal
+    # Phase 2 — track running extreme; flip on reversal
     while i < n:
         if direction == 'up':
             if high[i] > ext_price:
@@ -404,6 +420,15 @@ def detect_zigzag_pivots(df, dev_pct):
                 direction = 'up'
                 ext_idx, ext_price = i, high[i]
         i += 1
+
+    # Phase 3 — append the still-forming running extreme as a tentative pivot.
+    # Direction 'down' = we're tracking a low (potential L pivot, not yet
+    # confirmed by a 35% rally). Direction 'up' = tracking a high.
+    if include_tentative:
+        kind = 'L' if direction == 'down' else 'H'
+        # Only add if it's a different bar from the last confirmed pivot
+        if not pivots or pivots[-1][0] != ext_idx:
+            pivots.append((ext_idx, ext_price, kind))
 
     return pivots
 
