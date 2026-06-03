@@ -1,28 +1,33 @@
-# Runs the scan and writes results.json — used by the GitHub Actions robot.
-# Designed to run on a schedule (see scan.yml) and commit results.json to the repo.
+# Runs the scan AND backtest, writes results.json + performance.json.
+# Used by GitHub Actions on the scheduled cron.
 
-from zigzag_kb_engine import scan, save_dashboard_json, load_nifty500
+from zigzag_kb_engine import (
+    scan, save_dashboard_json, load_nifty500,
+    backtest_all, save_performance_json,
+)
 
-# Use the full Nifty 500 (auto-loaded from NSE)
 SYMBOLS, SECTORS = load_nifty500()
+TIMEFRAMES = ["1D", "1W"]
+DEVIATION = 35.0
+BACKTEST_WINDOW_DAYS = 365   # 12-month backtest window
 
-TIMEFRAMES = ["1D", "1W"]   # Daily + Weekly per spec
-DEVIATION = 35.0            # ZigZag deviation %
-
-print(f"Scanning {len(SYMBOLS)} stocks at {DEVIATION}% deviation, timeframes={TIMEFRAMES}")
-
-# Run the scan — return_stats=True so we can write a health status to results.json
+# ----- Scan (current setups) -----
+print(f"Scanning {len(SYMBOLS)} stocks at {DEVIATION}% dev, tfs={TIMEFRAMES}")
 df, stats = scan(SYMBOLS, timeframes=TIMEFRAMES, dev_pct=DEVIATION,
                  verbose=False, return_stats=True)
-
-# Write the dashboard feed (includes data_status for auth/API failure detection)
 save_dashboard_json(df, path="results.json", deviation=DEVIATION,
                     sectors=SECTORS, stats=stats)
+print(f"wrote results.json — {len(df)} setups, "
+      f"stats: attempted={stats['attempted']} fetched_ok={stats['fetched_ok']} setups={stats['setups']}")
 
-print(f"wrote results.json — {len(df)} setups across {len(SYMBOLS)} stocks")
-print(f"stats: attempted={stats['attempted']}  fetched_ok={stats['fetched_ok']}  setups={stats['setups']}")
-if stats.get("sample_errors"):
-    print("sample errors:")
-    for e in stats["sample_errors"]:
-        print(f"  {e}")
+# ----- Backtest (historical performance) -----
+print(f"\nBacktesting last {BACKTEST_WINDOW_DAYS} days …")
+trades = backtest_all(SYMBOLS, timeframes=TIMEFRAMES, dev_pct=DEVIATION,
+                      window_days=BACKTEST_WINDOW_DAYS, sectors=SECTORS, verbose=False)
+save_performance_json(trades, path="performance.json", window_days=BACKTEST_WINDOW_DAYS)
+print(f"wrote performance.json — {len(trades)} completed historical trades")
+if trades:
+    wins = sum(1 for t in trades if t["outcome"] == "win")
+    avg_r = sum(t["r_multiple"] for t in trades) / len(trades)
+    print(f"  Quick stats: {wins}/{len(trades)} wins ({wins/len(trades)*100:.1f}%), avg R = {avg_r:+.2f}")
 
