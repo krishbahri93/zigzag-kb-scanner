@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-06-03T14:07:03+05:30",
-  "generated_label": "14:07 IST \u00b7 03 Jun",
+  "generated_at": "2026-06-03T15:11:20+05:30",
+  "generated_label": "15:11 IST \u00b7 03 Jun",
   "deviation": 35.0,
   "rows": [
     {
@@ -29,8 +29,8 @@
       "vol_x": 0.5,
       "rr": 5.16,
       "confirmed_at": "2026-06-05T00:00:00+05:30",
-      "macro_a": NaN,
-      "macro_b": NaN
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "ASIANPAINT",
@@ -57,9 +57,9 @@
       "vol_ok": false,
       "vol_x": 0.7,
       "rr": 1.62,
-      "confirmed_at": NaN,
-      "macro_a": NaN,
-      "macro_b": NaN
+      "confirmed_at": null,
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "ASIANPAINT",
@@ -86,9 +86,9 @@
       "vol_ok": false,
       "vol_x": 0.5,
       "rr": 1.62,
-      "confirmed_at": NaN,
-      "macro_a": NaN,
-      "macro_b": NaN
+      "confirmed_at": null,
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "ADANIENT",
@@ -115,9 +115,9 @@
       "vol_ok": false,
       "vol_x": 0.7,
       "rr": 5.16,
-      "confirmed_at": NaN,
-      "macro_a": NaN,
-      "macro_b": NaN
+      "confirmed_at": null,
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "ADANIENT",
@@ -144,7 +144,7 @@
       "vol_ok": false,
       "vol_x": 0.3,
       "rr": 5.16,
-      "confirmed_at": NaN,
+      "confirmed_at": null,
       "macro_a": 4062.16,
       "macro_b": 986.41
     },
@@ -202,7 +202,7 @@
       "vol_ok": false,
       "vol_x": 0.3,
       "rr": 1.62,
-      "confirmed_at": NaN,
+      "confirmed_at": null,
       "macro_a": 8345.0,
       "macro_b": 3275.5
     },
@@ -231,9 +231,9 @@
       "vol_ok": false,
       "vol_x": 1.1,
       "rr": 5.16,
-      "confirmed_at": NaN,
-      "macro_a": NaN,
-      "macro_b": NaN
+      "confirmed_at": null,
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "COALINDIA",
@@ -260,9 +260,9 @@
       "vol_ok": false,
       "vol_x": 1.1,
       "rr": 5.16,
-      "confirmed_at": NaN,
-      "macro_a": NaN,
-      "macro_b": NaN
+      "confirmed_at": null,
+      "macro_a": null,
+      "macro_b": null
     },
     {
       "sym": "360ONE",
@@ -290,8 +290,8 @@
       "vol_x": 0.5,
       "rr": 1.62,
       "confirmed_at": "2026-06-05T00:00:00+05:30",
-      "macro_a": NaN,
-      "macro_b": NaN
+      "macro_a": null,
+      "macro_b": null
     }
   ]
 }
