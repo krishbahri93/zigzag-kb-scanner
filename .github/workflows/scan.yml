@@ -1,8 +1,9 @@
 name: ZigZag KB Scan
 on:
-  workflow_dispatch:                 # lets you run it manually too
+  workflow_dispatch:                 # lets you run it manually
   schedule:
-    - cron: "*/5 3-10 * * 1-5"       # every 5 min, ~NSE hours (UTC, Mon-Fri); GitHub timing is best-effort
+    - cron: "*/5 3-10 * * 1-5"       # every 5 min during NSE hours (~8:30 AM - 3:30 PM IST)
+    - cron: "5 10,11 * * 1-5"        # once at 3:35 PM IST + once at 4:35 PM IST to capture the daily close
 permissions:
   contents: write
 jobs:
