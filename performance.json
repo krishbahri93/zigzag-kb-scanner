@@ -1,24 +1,24 @@
 {
-  "generated_at": "2026-06-04T20:02:51+05:30",
-  "generated_label": "20:02 IST \u00b7 04 Jun",
+  "generated_at": "2026-06-05T00:21:44+05:30",
+  "generated_label": "00:21 IST \u00b7 05 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 694,
-    "wins": 313,
-    "losses": 381,
-    "win_rate": 0.451,
-    "avg_r": 0.9,
-    "total_r": 621.7
+    "total_trades": 688,
+    "wins": 311,
+    "losses": 377,
+    "win_rate": 0.452,
+    "avg_r": 0.89,
+    "total_r": 615.3
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 165,
+      "trades": 164,
       "wins": 91,
-      "win_rate": 0.552,
-      "avg_r": 0.44,
-      "total_r": 73.4
+      "win_rate": 0.555,
+      "avg_r": 0.45,
+      "total_r": 74.4
     },
     {
       "trade_type": "T1",
@@ -32,11 +32,11 @@
     {
       "trade_type": "T2",
       "tf": "1D",
-      "trades": 251,
-      "wins": 71,
-      "win_rate": 0.283,
-      "avg_r": 0.74,
-      "total_r": 186.4
+      "trades": 246,
+      "wins": 69,
+      "win_rate": 0.28,
+      "avg_r": 0.73,
+      "total_r": 179.0
     },
     {
       "trade_type": "T2",
@@ -51,9 +51,9 @@
   "monthly": [
     {
       "month": "2025-06",
-      "trades": 111,
-      "wins": 33,
-      "total_r": 17.9
+      "trades": 105,
+      "wins": 31,
+      "total_r": 11.6
     },
     {
       "month": "2025-07",
@@ -187,8 +187,8 @@
   "worst_performers": [
     {
       "sym": "SCHAEFFLER",
-      "trades": 9,
-      "total_r": -9.0,
+      "trades": 8,
+      "total_r": -8.0,
       "tf": "1D"
     },
     {
@@ -216,15 +216,15 @@
       "tf": "1D"
     },
     {
-      "sym": "HSCL",
-      "trades": 7,
-      "total_r": -4.4,
-      "tf": "1D"
-    },
-    {
       "sym": "WAAREEENER",
       "trades": 9,
       "total_r": -3.8,
+      "tf": "1D"
+    },
+    {
+      "sym": "HSCL",
+      "trades": 6,
+      "total_r": -3.4,
       "tf": "1D"
     },
     {
@@ -256,12 +256,12 @@
       "> 3R"
     ],
     "counts": [
-      381,
+      377,
       0,
       0,
       173,
       0,
-      140
+      138
     ]
   }
 }
