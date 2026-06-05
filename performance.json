@@ -1,33 +1,33 @@
 {
-  "generated_at": "2026-06-05T00:21:44+05:30",
-  "generated_label": "00:21 IST \u00b7 05 Jun",
+  "generated_at": "2026-06-05T09:39:09+05:30",
+  "generated_label": "09:39 IST \u00b7 05 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 688,
-    "wins": 311,
-    "losses": 377,
-    "win_rate": 0.452,
-    "avg_r": 0.89,
-    "total_r": 615.3
+    "total_trades": 683,
+    "wins": 308,
+    "losses": 375,
+    "win_rate": 0.451,
+    "avg_r": 0.88,
+    "total_r": 601.9
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 164,
-      "wins": 91,
-      "win_rate": 0.555,
+      "trades": 166,
+      "wins": 92,
+      "win_rate": 0.554,
       "avg_r": 0.45,
-      "total_r": 74.4
+      "total_r": 75.0
     },
     {
       "trade_type": "T1",
       "tf": "1W",
-      "trades": 127,
-      "wins": 82,
-      "win_rate": 0.646,
-      "avg_r": 0.69,
-      "total_r": 87.8
+      "trades": 124,
+      "wins": 81,
+      "win_rate": 0.653,
+      "avg_r": 0.71,
+      "total_r": 88.2
     },
     {
       "trade_type": "T2",
@@ -41,11 +41,11 @@
     {
       "trade_type": "T2",
       "tf": "1W",
-      "trades": 151,
-      "wins": 69,
-      "win_rate": 0.457,
-      "avg_r": 1.81,
-      "total_r": 274.0
+      "trades": 147,
+      "wins": 66,
+      "win_rate": 0.449,
+      "avg_r": 1.77,
+      "total_r": 259.6
     }
   ],
   "monthly": [
@@ -111,15 +111,15 @@
     },
     {
       "month": "2026-04",
-      "trades": 107,
+      "trades": 106,
       "wins": 76,
-      "total_r": 191.2
+      "total_r": 188.7
     },
     {
       "month": "2026-05",
-      "trades": 52,
-      "wins": 27,
-      "total_r": 71.8
+      "trades": 48,
+      "wins": 24,
+      "total_r": 60.9
     }
   ],
   "top_performers": [
@@ -127,12 +127,6 @@
       "sym": "IDEA",
       "trades": 8,
       "total_r": 24.5,
-      "tf": "1D"
-    },
-    {
-      "sym": "ACMESOLAR",
-      "trades": 5,
-      "total_r": 18.7,
       "tf": "1D"
     },
     {
@@ -151,6 +145,12 @@
       "sym": "NEULANDLAB",
       "trades": 9,
       "total_r": 13.8,
+      "tf": "1D"
+    },
+    {
+      "sym": "ACMESOLAR",
+      "trades": 4,
+      "total_r": 13.6,
       "tf": "1D"
     },
     {
@@ -256,12 +256,12 @@
       "> 3R"
     ],
     "counts": [
-      377,
+      375,
       0,
       0,
       173,
       0,
-      138
+      135
     ]
   }
 }
