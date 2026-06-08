@@ -1,59 +1,59 @@
 {
-  "generated_at": "2026-06-05T23:18:06+05:30",
-  "generated_label": "23:18 IST \u00b7 05 Jun",
+  "generated_at": "2026-06-08T09:46:53+05:30",
+  "generated_label": "09:46 IST \u00b7 08 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 683,
-    "wins": 308,
-    "losses": 375,
-    "win_rate": 0.451,
-    "avg_r": 0.88,
-    "total_r": 601.9
+    "total_trades": 669,
+    "wins": 304,
+    "losses": 365,
+    "win_rate": 0.454,
+    "avg_r": 0.92,
+    "total_r": 612.5
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 166,
-      "wins": 92,
-      "win_rate": 0.554,
-      "avg_r": 0.45,
-      "total_r": 75.0
+      "trades": 160,
+      "wins": 89,
+      "win_rate": 0.556,
+      "avg_r": 0.46,
+      "total_r": 73.2
     },
     {
       "trade_type": "T1",
       "tf": "1W",
-      "trades": 124,
-      "wins": 81,
-      "win_rate": 0.653,
-      "avg_r": 0.71,
-      "total_r": 88.2
+      "trades": 118,
+      "wins": 78,
+      "win_rate": 0.661,
+      "avg_r": 0.73,
+      "total_r": 86.4
     },
     {
       "trade_type": "T2",
       "tf": "1D",
-      "trades": 246,
-      "wins": 69,
+      "trades": 243,
+      "wins": 68,
       "win_rate": 0.28,
-      "avg_r": 0.73,
-      "total_r": 179.0
+      "avg_r": 0.72,
+      "total_r": 175.9
     },
     {
       "trade_type": "T2",
       "tf": "1W",
-      "trades": 147,
-      "wins": 66,
-      "win_rate": 0.449,
-      "avg_r": 1.77,
-      "total_r": 259.6
+      "trades": 148,
+      "wins": 69,
+      "win_rate": 0.466,
+      "avg_r": 1.87,
+      "total_r": 277.0
     }
   ],
   "monthly": [
     {
       "month": "2025-06",
-      "trades": 105,
-      "wins": 31,
-      "total_r": 11.6
+      "trades": 80,
+      "wins": 20,
+      "total_r": -2.8
     },
     {
       "month": "2025-07",
@@ -99,9 +99,9 @@
     },
     {
       "month": "2026-02",
-      "trades": 61,
+      "trades": 60,
       "wins": 25,
-      "total_r": 43.4
+      "total_r": 44.4
     },
     {
       "month": "2026-03",
@@ -111,15 +111,15 @@
     },
     {
       "month": "2026-04",
-      "trades": 106,
-      "wins": 76,
-      "total_r": 188.7
+      "trades": 110,
+      "wins": 78,
+      "total_r": 193.5
     },
     {
       "month": "2026-05",
-      "trades": 48,
-      "wins": 24,
-      "total_r": 60.9
+      "trades": 56,
+      "wins": 29,
+      "total_r": 80.2
     }
   ],
   "top_performers": [
@@ -127,6 +127,12 @@
       "sym": "IDEA",
       "trades": 8,
       "total_r": 24.5,
+      "tf": "1D"
+    },
+    {
+      "sym": "ACMESOLAR",
+      "trades": 5,
+      "total_r": 18.7,
       "tf": "1D"
     },
     {
@@ -148,7 +154,7 @@
       "tf": "1D"
     },
     {
-      "sym": "ACMESOLAR",
+      "sym": "ADANIENSOL",
       "trades": 4,
       "total_r": 13.6,
       "tf": "1D"
@@ -160,6 +166,12 @@
       "tf": "1D"
     },
     {
+      "sym": "SAMMAANCAP",
+      "trades": 5,
+      "total_r": 12.6,
+      "tf": "1D"
+    },
+    {
       "sym": "ENGINERSIN",
       "trades": 8,
       "total_r": 12.2,
@@ -167,18 +179,6 @@
     },
     {
       "sym": "BHARATFORG",
-      "trades": 3,
-      "total_r": 11.9,
-      "tf": "1D"
-    },
-    {
-      "sym": "JKTYRE",
-      "trades": 3,
-      "total_r": 11.9,
-      "tf": "1D"
-    },
-    {
-      "sym": "NATIONALUM",
       "trades": 3,
       "total_r": 11.9,
       "tf": "1D"
@@ -216,21 +216,21 @@
       "tf": "1D"
     },
     {
+      "sym": "PNB",
+      "trades": 5,
+      "total_r": -5.0,
+      "tf": "1D"
+    },
+    {
       "sym": "WAAREEENER",
       "trades": 9,
       "total_r": -3.8,
       "tf": "1D"
     },
     {
-      "sym": "HSCL",
-      "trades": 6,
-      "total_r": -3.4,
-      "tf": "1D"
-    },
-    {
-      "sym": "PNB",
-      "trades": 6,
-      "total_r": -3.4,
+      "sym": "TIINDIA",
+      "trades": 3,
+      "total_r": -3.0,
       "tf": "1D"
     },
     {
@@ -256,12 +256,12 @@
       "> 3R"
     ],
     "counts": [
-      375,
+      365,
       0,
       0,
-      173,
+      167,
       0,
-      135
+      137
     ]
   }
 }
