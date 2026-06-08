@@ -1,0 +1,16 @@
+# US scanner local artifacts (not committed; CI uses actions/cache)
+us_cache/
+us_universe.json
+
+# Secrets / scratch
+.env
+_probe.py
+_*.py
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+
+# logs
+*.log
