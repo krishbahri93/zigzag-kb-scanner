@@ -1,0 +1,273 @@
+{
+  "generated_at": "2026-06-08T18:26:43-04:00",
+  "generated_label": "18:26 ET \u00b7 08 Jun",
+  "window_days": 365,
+  "summary": {
+    "total_trades": 3758,
+    "wins": 2486,
+    "losses": 1272,
+    "win_rate": 0.662,
+    "avg_r": 2.12,
+    "total_r": 7973.3
+  },
+  "breakdown": [
+    {
+      "trade_type": "T1",
+      "tf": "1D",
+      "trades": 1104,
+      "wins": 790,
+      "win_rate": 0.716,
+      "avg_r": 0.87,
+      "total_r": 965.8
+    },
+    {
+      "trade_type": "T1",
+      "tf": "1W",
+      "trades": 275,
+      "wins": 222,
+      "win_rate": 0.807,
+      "avg_r": 1.12,
+      "total_r": 306.6
+    },
+    {
+      "trade_type": "T2",
+      "tf": "1D",
+      "trades": 1844,
+      "wins": 1090,
+      "win_rate": 0.591,
+      "avg_r": 2.64,
+      "total_r": 4870.4
+    },
+    {
+      "trade_type": "T2",
+      "tf": "1W",
+      "trades": 535,
+      "wins": 384,
+      "win_rate": 0.718,
+      "avg_r": 3.42,
+      "total_r": 1830.4
+    }
+  ],
+  "monthly": [
+    {
+      "month": "2025-06",
+      "trades": 222,
+      "wins": 151,
+      "total_r": 432.0
+    },
+    {
+      "month": "2025-07",
+      "trades": 293,
+      "wins": 170,
+      "total_r": 520.6
+    },
+    {
+      "month": "2025-08",
+      "trades": 305,
+      "wins": 209,
+      "total_r": 752.3
+    },
+    {
+      "month": "2025-09",
+      "trades": 293,
+      "wins": 201,
+      "total_r": 644.3
+    },
+    {
+      "month": "2025-10",
+      "trades": 287,
+      "wins": 191,
+      "total_r": 631.1
+    },
+    {
+      "month": "2025-11",
+      "trades": 190,
+      "wins": 143,
+      "total_r": 482.0
+    },
+    {
+      "month": "2025-12",
+      "trades": 281,
+      "wins": 179,
+      "total_r": 538.4
+    },
+    {
+      "month": "2026-01",
+      "trades": 456,
+      "wins": 319,
+      "total_r": 1024.1
+    },
+    {
+      "month": "2026-02",
+      "trades": 336,
+      "wins": 191,
+      "total_r": 582.1
+    },
+    {
+      "month": "2026-03",
+      "trades": 189,
+      "wins": 121,
+      "total_r": 375.8
+    },
+    {
+      "month": "2026-04",
+      "trades": 444,
+      "wins": 291,
+      "total_r": 899.0
+    },
+    {
+      "month": "2026-05",
+      "trades": 412,
+      "wins": 298,
+      "total_r": 1034.3
+    },
+    {
+      "month": "2026-06",
+      "trades": 50,
+      "wins": 22,
+      "total_r": 57.2
+    }
+  ],
+  "top_performers": [
+    {
+      "sym": "RCAT",
+      "trades": 20,
+      "total_r": 62.6,
+      "tf": "1D"
+    },
+    {
+      "sym": "AMPX",
+      "trades": 15,
+      "total_r": 59.7,
+      "tf": "1D"
+    },
+    {
+      "sym": "UMAC",
+      "trades": 18,
+      "total_r": 47.9,
+      "tf": "1D"
+    },
+    {
+      "sym": "LUNR",
+      "trades": 15,
+      "total_r": 44.8,
+      "tf": "1D"
+    },
+    {
+      "sym": "PBF",
+      "trades": 10,
+      "total_r": 41.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "POET",
+      "trades": 17,
+      "total_r": 40.9,
+      "tf": "1D"
+    },
+    {
+      "sym": "NVTS",
+      "trades": 14,
+      "total_r": 39.6,
+      "tf": "1D"
+    },
+    {
+      "sym": "TE",
+      "trades": 15,
+      "total_r": 39.5,
+      "tf": "1D"
+    },
+    {
+      "sym": "VSAT",
+      "trades": 10,
+      "total_r": 38.4,
+      "tf": "1D"
+    },
+    {
+      "sym": "IBRX",
+      "trades": 19,
+      "total_r": 38.1,
+      "tf": "1D"
+    }
+  ],
+  "worst_performers": [
+    {
+      "sym": "ABNB",
+      "trades": 5,
+      "total_r": -5.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "MGM",
+      "trades": 13,
+      "total_r": -4.2,
+      "tf": "1D"
+    },
+    {
+      "sym": "PEP",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "UBER",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "CMCSA",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "PSKY",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "UPST",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "AER",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "IR",
+      "trades": 6,
+      "total_r": -3.4,
+      "tf": "1D"
+    },
+    {
+      "sym": "EXLS",
+      "trades": 3,
+      "total_r": -3.0,
+      "tf": "1D"
+    }
+  ],
+  "distribution": {
+    "buckets": [
+      "\u2264 -1R",
+      "-1 to 0",
+      "0 to 1",
+      "1 to 2",
+      "2 to 3",
+      "> 3R"
+    ],
+    "counts": [
+      1272,
+      0,
+      0,
+      1012,
+      0,
+      1474
+    ]
+  }
+}
