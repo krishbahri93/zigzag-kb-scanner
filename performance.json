@@ -1,24 +1,24 @@
 {
-  "generated_at": "2026-06-08T22:43:54+05:30",
-  "generated_label": "22:43 IST \u00b7 08 Jun",
+  "generated_at": "2026-06-09T00:32:56+05:30",
+  "generated_label": "00:32 IST \u00b7 09 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 669,
-    "wins": 304,
-    "losses": 365,
-    "win_rate": 0.454,
-    "avg_r": 0.92,
-    "total_r": 612.5
+    "total_trades": 660,
+    "wins": 302,
+    "losses": 358,
+    "win_rate": 0.458,
+    "avg_r": 0.93,
+    "total_r": 612.7
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 160,
-      "wins": 89,
-      "win_rate": 0.556,
-      "avg_r": 0.46,
-      "total_r": 73.2
+      "trades": 155,
+      "wins": 88,
+      "win_rate": 0.568,
+      "avg_r": 0.49,
+      "total_r": 75.6
     },
     {
       "trade_type": "T1",
@@ -32,11 +32,11 @@
     {
       "trade_type": "T2",
       "tf": "1D",
-      "trades": 243,
-      "wins": 68,
+      "trades": 239,
+      "wins": 67,
       "win_rate": 0.28,
-      "avg_r": 0.72,
-      "total_r": 175.9
+      "avg_r": 0.73,
+      "total_r": 173.7
     },
     {
       "trade_type": "T2",
@@ -51,9 +51,9 @@
   "monthly": [
     {
       "month": "2025-06",
-      "trades": 80,
-      "wins": 20,
-      "total_r": -2.8
+      "trades": 71,
+      "wins": 18,
+      "total_r": -2.6
     },
     {
       "month": "2025-07",
@@ -143,8 +143,8 @@
     },
     {
       "sym": "ADANIGREEN",
-      "trades": 9,
-      "total_r": 14.7,
+      "trades": 8,
+      "total_r": 15.7,
       "tf": "1D"
     },
     {
@@ -204,21 +204,21 @@
       "tf": "1D"
     },
     {
-      "sym": "ABSLAMC",
+      "sym": "PNB",
       "trades": 5,
       "total_r": -5.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "ABSLAMC",
+      "trades": 4,
+      "total_r": -4.0,
       "tf": "1D"
     },
     {
       "sym": "JSWINFRA",
-      "trades": 5,
-      "total_r": -5.0,
-      "tf": "1D"
-    },
-    {
-      "sym": "PNB",
-      "trades": 5,
-      "total_r": -5.0,
+      "trades": 4,
+      "total_r": -4.0,
       "tf": "1D"
     },
     {
@@ -256,12 +256,12 @@
       "> 3R"
     ],
     "counts": [
-      365,
+      358,
       0,
       0,
-      167,
+      166,
       0,
-      137
+      136
     ]
   }
 }
