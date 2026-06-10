@@ -19,6 +19,14 @@ every synthetic test, yet still diverges. Only numeric parity against real
 indicator output catches that class of bug. So: golden-master parity testing is the
 **primary** mechanism; everything else (including a multi-agent skill) is secondary.
 
+> **Tooling:** this checklist is now executable. The `pine_port/` package
+> automates the deterministic steps — `python -m pine_port lint <file.pine>`
+> (step 1 + trap flags + plot inventory) and `python -m pine_port parity
+> --csv golden.csv --port module:run` (step 7, incl. regression snapshots) —
+> and `pine_port/runtime.py` provides Pine-exact `ta.*` building blocks for
+> step 6. The agent workflow lives in `.claude/skills/pine-to-python/`.
+> See `pine_port/README.md`.
+
 ## Pipeline — run this for every port
 
 ### 1. Extract dependencies
