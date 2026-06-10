@@ -6,6 +6,9 @@ us_universe.json
 .env
 _probe.py
 _*.py
+# but _*.py must not swallow dunder package files
+!__init__.py
+!__main__.py
 .claude/settings.local.json
 
 # Python
