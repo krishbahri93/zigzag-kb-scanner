@@ -1,21 +1,273 @@
 {
-  "generated_at": "2026-06-12T23:37:34+05:30",
-  "generated_label": "23:37 IST \u00b7 12 Jun",
+  "generated_at": "2026-06-15T14:03:46+05:30",
+  "generated_label": "14:03 IST \u00b7 15 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 0,
-    "wins": 0,
-    "losses": 0,
-    "win_rate": 0.0,
-    "avg_r": 0.0,
-    "total_r": 0.0
+    "total_trades": 668,
+    "wins": 307,
+    "losses": 361,
+    "win_rate": 0.46,
+    "avg_r": 0.95,
+    "total_r": 635.5
   },
-  "breakdown": [],
-  "monthly": [],
-  "top_performers": [],
-  "worst_performers": [],
+  "breakdown": [
+    {
+      "trade_type": "T1",
+      "tf": "1D",
+      "trades": 157,
+      "wins": 89,
+      "win_rate": 0.567,
+      "avg_r": 0.49,
+      "total_r": 76.2
+    },
+    {
+      "trade_type": "T1",
+      "tf": "1W",
+      "trades": 117,
+      "wins": 77,
+      "win_rate": 0.658,
+      "avg_r": 0.72,
+      "total_r": 84.7
+    },
+    {
+      "trade_type": "T2",
+      "tf": "1D",
+      "trades": 244,
+      "wins": 71,
+      "win_rate": 0.291,
+      "avg_r": 0.79,
+      "total_r": 193.4
+    },
+    {
+      "trade_type": "T2",
+      "tf": "1W",
+      "trades": 150,
+      "wins": 70,
+      "win_rate": 0.467,
+      "avg_r": 1.87,
+      "total_r": 281.2
+    }
+  ],
+  "monthly": [
+    {
+      "month": "2025-06",
+      "trades": 58,
+      "wins": 16,
+      "total_r": 1.6
+    },
+    {
+      "month": "2025-07",
+      "trades": 64,
+      "wins": 26,
+      "total_r": 46.6
+    },
+    {
+      "month": "2025-08",
+      "trades": 44,
+      "wins": 18,
+      "total_r": 42.1
+    },
+    {
+      "month": "2025-09",
+      "trades": 68,
+      "wins": 32,
+      "total_r": 68.9
+    },
+    {
+      "month": "2025-10",
+      "trades": 63,
+      "wins": 32,
+      "total_r": 88.1
+    },
+    {
+      "month": "2025-11",
+      "trades": 34,
+      "wins": 8,
+      "total_r": 1.1
+    },
+    {
+      "month": "2025-12",
+      "trades": 24,
+      "wins": 7,
+      "total_r": 12.0
+    },
+    {
+      "month": "2026-01",
+      "trades": 40,
+      "wins": 11,
+      "total_r": 6.5
+    },
+    {
+      "month": "2026-02",
+      "trades": 60,
+      "wins": 25,
+      "total_r": 44.4
+    },
+    {
+      "month": "2026-03",
+      "trades": 28,
+      "wins": 18,
+      "total_r": 29.8
+    },
+    {
+      "month": "2026-04",
+      "trades": 114,
+      "wins": 79,
+      "total_r": 195.6
+    },
+    {
+      "month": "2026-05",
+      "trades": 67,
+      "wins": 33,
+      "total_r": 90.3
+    },
+    {
+      "month": "2026-06",
+      "trades": 4,
+      "wins": 2,
+      "total_r": 8.3
+    }
+  ],
+  "top_performers": [
+    {
+      "sym": "IDEA",
+      "trades": 8,
+      "total_r": 24.5,
+      "tf": "1D"
+    },
+    {
+      "sym": "ACMESOLAR",
+      "trades": 5,
+      "total_r": 18.7,
+      "tf": "1D"
+    },
+    {
+      "sym": "ANGELONE",
+      "trades": 6,
+      "total_r": 17.7,
+      "tf": "1D"
+    },
+    {
+      "sym": "ADANIGREEN",
+      "trades": 8,
+      "total_r": 15.7,
+      "tf": "1D"
+    },
+    {
+      "sym": "NEULANDLAB",
+      "trades": 8,
+      "total_r": 14.8,
+      "tf": "1D"
+    },
+    {
+      "sym": "ADANIENSOL",
+      "trades": 4,
+      "total_r": 13.6,
+      "tf": "1D"
+    },
+    {
+      "sym": "RRKABEL",
+      "trades": 4,
+      "total_r": 13.6,
+      "tf": "1D"
+    },
+    {
+      "sym": "SAMMAANCAP",
+      "trades": 5,
+      "total_r": 12.6,
+      "tf": "1D"
+    },
+    {
+      "sym": "ENGINERSIN",
+      "trades": 8,
+      "total_r": 12.2,
+      "tf": "1D"
+    },
+    {
+      "sym": "BHARATFORG",
+      "trades": 3,
+      "total_r": 11.9,
+      "tf": "1D"
+    }
+  ],
+  "worst_performers": [
+    {
+      "sym": "SCHAEFFLER",
+      "trades": 8,
+      "total_r": -8.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "HUDCO",
+      "trades": 9,
+      "total_r": -6.4,
+      "tf": "1D"
+    },
+    {
+      "sym": "360ONE",
+      "trades": 6,
+      "total_r": -6.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "CESC",
+      "trades": 5,
+      "total_r": -5.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "PNB",
+      "trades": 5,
+      "total_r": -5.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "ABSLAMC",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "JSWINFRA",
+      "trades": 4,
+      "total_r": -4.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "WAAREEENER",
+      "trades": 9,
+      "total_r": -3.8,
+      "tf": "1D"
+    },
+    {
+      "sym": "WELSPUNLIV",
+      "trades": 3,
+      "total_r": -3.0,
+      "tf": "1D"
+    },
+    {
+      "sym": "ZFCVINDIA",
+      "trades": 3,
+      "total_r": -3.0,
+      "tf": "1D"
+    }
+  ],
   "distribution": {
-    "buckets": [],
-    "counts": []
+    "buckets": [
+      "\u2264 -1R",
+      "-1 to 0",
+      "0 to 1",
+      "1 to 2",
+      "2 to 3",
+      "> 3R"
+    ],
+    "counts": [
+      361,
+      0,
+      0,
+      166,
+      0,
+      141
+    ]
   }
 }
