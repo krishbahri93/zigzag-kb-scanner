@@ -1,24 +1,24 @@
 {
-  "generated_at": "2026-06-16T12:14:09+05:30",
-  "generated_label": "12:14 IST \u00b7 16 Jun",
+  "generated_at": "2026-06-17T00:36:46+05:30",
+  "generated_label": "00:36 IST \u00b7 17 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 674,
+    "total_trades": 671,
     "wins": 315,
-    "losses": 359,
-    "win_rate": 0.467,
+    "losses": 356,
+    "win_rate": 0.469,
     "avg_r": 0.98,
-    "total_r": 657.5
+    "total_r": 660.5
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 161,
+      "trades": 160,
       "wins": 93,
-      "win_rate": 0.578,
-      "avg_r": 0.51,
-      "total_r": 82.7
+      "win_rate": 0.581,
+      "avg_r": 0.52,
+      "total_r": 83.7
     },
     {
       "trade_type": "T1",
@@ -32,11 +32,11 @@
     {
       "trade_type": "T2",
       "tf": "1D",
-      "trades": 242,
+      "trades": 240,
       "wins": 71,
-      "win_rate": 0.293,
-      "avg_r": 0.81,
-      "total_r": 195.4
+      "win_rate": 0.296,
+      "avg_r": 0.82,
+      "total_r": 197.4
     },
     {
       "trade_type": "T2",
@@ -51,9 +51,9 @@
   "monthly": [
     {
       "month": "2025-06",
-      "trades": 55,
+      "trades": 52,
       "wins": 15,
-      "total_r": 2.0
+      "total_r": 5.0
     },
     {
       "month": "2025-07",
@@ -262,7 +262,7 @@
       "> 3R"
     ],
     "counts": [
-      359,
+      356,
       0,
       0,
       172,
