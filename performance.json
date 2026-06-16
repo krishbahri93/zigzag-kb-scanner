@@ -1,33 +1,33 @@
 {
-  "generated_at": "2026-06-16T03:25:09+05:30",
-  "generated_label": "03:25 IST \u00b7 16 Jun",
+  "generated_at": "2026-06-16T12:14:09+05:30",
+  "generated_label": "12:14 IST \u00b7 16 Jun",
   "window_days": 365,
   "summary": {
-    "total_trades": 665,
-    "wins": 306,
+    "total_trades": 674,
+    "wins": 315,
     "losses": 359,
-    "win_rate": 0.46,
-    "avg_r": 0.96,
-    "total_r": 635.9
+    "win_rate": 0.467,
+    "avg_r": 0.98,
+    "total_r": 657.5
   },
   "breakdown": [
     {
       "trade_type": "T1",
       "tf": "1D",
-      "trades": 156,
-      "wins": 88,
-      "win_rate": 0.564,
-      "avg_r": 0.48,
-      "total_r": 74.6
+      "trades": 161,
+      "wins": 93,
+      "win_rate": 0.578,
+      "avg_r": 0.51,
+      "total_r": 82.7
     },
     {
       "trade_type": "T1",
       "tf": "1W",
-      "trades": 117,
-      "wins": 77,
-      "win_rate": 0.658,
-      "avg_r": 0.72,
-      "total_r": 84.7
+      "trades": 119,
+      "wins": 79,
+      "win_rate": 0.664,
+      "avg_r": 0.74,
+      "total_r": 88.0
     },
     {
       "trade_type": "T2",
@@ -41,11 +41,11 @@
     {
       "trade_type": "T2",
       "tf": "1W",
-      "trades": 150,
-      "wins": 70,
-      "win_rate": 0.467,
-      "avg_r": 1.87,
-      "total_r": 281.2
+      "trades": 152,
+      "wins": 72,
+      "win_rate": 0.474,
+      "avg_r": 1.92,
+      "total_r": 291.5
     }
   ],
   "monthly": [
@@ -111,21 +111,21 @@
     },
     {
       "month": "2026-04",
-      "trades": 114,
-      "wins": 79,
-      "total_r": 195.6
+      "trades": 117,
+      "wins": 82,
+      "total_r": 200.5
     },
     {
       "month": "2026-05",
-      "trades": 67,
-      "wins": 33,
-      "total_r": 90.3
+      "trades": 68,
+      "wins": 34,
+      "total_r": 91.9
     },
     {
       "month": "2026-06",
-      "trades": 4,
-      "wins": 2,
-      "total_r": 8.3
+      "trades": 9,
+      "wins": 7,
+      "total_r": 23.5
     }
   ],
   "top_performers": [
@@ -166,27 +166,27 @@
       "tf": "1D"
     },
     {
+      "sym": "MOTILALOFS",
+      "trades": 4,
+      "total_r": 13.6,
+      "tf": "1D"
+    },
+    {
       "sym": "RRKABEL",
       "trades": 4,
       "total_r": 13.6,
       "tf": "1D"
     },
     {
+      "sym": "CAPLIPOINT",
+      "trades": 7,
+      "total_r": 13.2,
+      "tf": "1D"
+    },
+    {
       "sym": "SAMMAANCAP",
       "trades": 5,
       "total_r": 12.6,
-      "tf": "1D"
-    },
-    {
-      "sym": "ENGINERSIN",
-      "trades": 8,
-      "total_r": 12.2,
-      "tf": "1D"
-    },
-    {
-      "sym": "BHARATFORG",
-      "trades": 3,
-      "total_r": 11.9,
       "tf": "1D"
     }
   ],
@@ -265,9 +265,9 @@
       359,
       0,
       0,
-      165,
+      172,
       0,
-      141
+      143
     ]
   }
 }
