@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-06-23T02:01:32+05:30",
-  "generated_label": "02:01 IST \u00b7 23 Jun",
+  "generated_at": "2026-06-23T18:23:41+05:30",
+  "generated_label": "18:23 IST \u00b7 23 Jun",
   "deviation": 35.0,
   "data_status": "no_data",
   "stats": {
-    "attempted": 1004,
+    "attempted": 1002,
     "fetched_ok": 0,
     "setups": 0,
     "sample_errors": []
