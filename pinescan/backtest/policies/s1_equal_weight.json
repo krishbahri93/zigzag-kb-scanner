@@ -1,0 +1,10 @@
+{
+  "name": "s1_equal_weight",
+  "description": "Equal-weight, set-and-forget: spread the capital across up to 10 equal-sized positions and hold each to its V2 target or stop. No active capital management.",
+  "capital": {"total": 2000000, "max_concurrent": 10},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 200000}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "none"},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.03, "slippage_pct": 0.05, "stt_pct": 0.025}
+}

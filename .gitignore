@@ -20,3 +20,6 @@ __pycache__/
 # generated cache + scan outputs (not committed)
 data/
 *.egg-info/
+
+# local Dhan creds (never commit)
+.dhan_creds

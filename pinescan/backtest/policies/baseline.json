@@ -1,0 +1,10 @@
+{
+  "name": "baseline",
+  "description": "Fixed sizing, no rotation: take signals while cash lasts, then skip new ones until a position exits.",
+  "capital": {"total": 2000000, "max_concurrent": 10},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 200000}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "none"},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.03, "slippage_pct": 0.05, "stt_pct": 0.025}
+}

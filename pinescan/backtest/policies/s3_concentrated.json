@@ -1,0 +1,10 @@
+{
+  "name": "s3_concentrated",
+  "description": "High conviction, concentrated: fewer but bigger bets - up to 5 positions of 4L each, held to exit. More exposure per name, higher variance.",
+  "capital": {"total": 2000000, "max_concurrent": 5},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 400000}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "none"},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.03, "slippage_pct": 0.05, "stt_pct": 0.025}
+}

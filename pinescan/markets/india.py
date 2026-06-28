@@ -29,6 +29,11 @@ DHAN_SCRIP_URL = os.environ.get(
 ENABLE_INTRADAY = os.environ.get("ZIGZAG_INTRADAY", "true").lower() in ("1", "true", "yes")
 INTRADAY_INTERVAL = 15  # minutes per intraday bar
 
+# Daily-bar cache: ONE parquet per symbol (Dhan is fetched per-symbol, unlike the
+# US grouped endpoint which caches one parquet per date). Module-level so tests can
+# monkeypatch it to a tmp dir; data/ is git-ignored, created lazily on first backfill.
+CACHE_DIR = "data/cache/india"
+
 
 # ============================================================================
 # UNIVERSE — NSE Nifty 500
@@ -259,3 +264,57 @@ def get_daily(symbol):
 def get_intraday(symbol):
     """Today's intraday-aggregated partial bar (Dhan only; None otherwise)."""
     return _fetch_today_partial(symbol)
+
+
+# ============================================================================
+# DAILY CACHE — one parquet PER SYMBOL, resumable (mirrors markets/us.py)
+# ============================================================================
+# Dhan's historical endpoint is per-symbol, so — unlike the US grouped cache
+# (one parquet per date) — we write one parquet per symbol. Backfill is
+# resumable: a symbol whose parquet already exists is skipped, so an interrupted
+# run continues where it left off. Throttling lives inside _fetch_dhan_daily.
+#
+# To extend: keep the per-symbol file layout (CACHE_DIR/{symbol}.parquet) so the
+# skip-if-exists resume logic and load_cache stay in sync; bump `years` for more
+# history. scripts/backfill_india.py drives this with real Dhan creds.
+
+def backfill(symbols, years=5, progress_every=25):
+    """Fetch `years` of daily OHLCV for each symbol and write one parquet per
+    symbol under CACHE_DIR. Resumable: symbols whose parquet already exists are
+    skipped (so re-running only fills the gaps). Symbols Dhan returns nothing for
+    (None/empty) are left uncached and simply retried on the next run.
+
+    Per-symbol (one Dhan call each) — contrast markets/us.py.backfill, which is
+    per-date because Polygon's grouped endpoint returns all tickers at once. The
+    inter-call throttle already lives in _fetch_dhan_daily, so we don't sleep here.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)   # data/ is gitignored: create on first run
+    total = len(symbols)
+    done = fetched = 0
+    print(f"  backfill: {total} symbols, ~{years}y daily each (resumable) …")
+    for sym in symbols:
+        done += 1
+        fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
+        if not os.path.exists(fp):                       # resume: skip cached symbols
+            df = _fetch_dhan_daily(sym, days=years * 365)
+            if df is not None and len(df) > 0:
+                df.to_parquet(fp)                        # index = Asia/Kolkata dates
+                fetched += 1
+        if done % progress_every == 0 or done == total:
+            print(f"    backfill {done}/{total} ({fetched} fetched this run) … {sym}")
+    print(f"  backfill complete: {total} symbols scanned, {fetched} fetched this run")
+
+
+def load_cache(symbols):
+    """Read the cached per-symbol parquet files → {symbol: daily DataFrame}.
+
+    Symbols with no parquet yet are silently skipped, so callers get only what's
+    actually been backfilled. Each frame round-trips exactly what backfill wrote
+    (OHLCV columns, Asia/Kolkata DatetimeIndex).
+    """
+    cache = {}
+    for sym in symbols:
+        fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
+        if os.path.exists(fp):
+            cache[sym] = pd.read_parquet(fp)
+    return cache
