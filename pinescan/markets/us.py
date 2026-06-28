@@ -30,13 +30,44 @@ US_EXCHANGES = {"XNYS", "XNAS", "XASE"}   # NYSE, NASDAQ, NYSE American
 CACHE_DIR = "data/cache/us"                # one parquet per date (resumable)
 UNIVERSE_FILE = "data/cache/us/universe.json"   # cached liquid-universe selection
 
+# Benchmark tickers the backtest study measures each strategy against (buy-&-hold). SPY ≈
+# S&P 500, QQQ ≈ Nasdaq-100. These are ETFs, NOT in the type=CS scan universe, so
+# fetch_benchmark_daily pulls them straight from Polygon's single-ticker aggregates rather
+# than the per-date stock cache. Mirrors india.INDEX_IDS on the Dhan side.
+US_BENCHMARKS = {"S&P 500 (SPY)": "SPY", "Nasdaq-100 (QQQ)": "QQQ"}
+
 # Free tier = 5 calls/min. 13s spacing ≈ 4.6/min — a safe margin.
 RATE_SLEEP = float(os.environ.get("US_RATE_SLEEP", "13"))
 
 _session = requests.Session()
 
 
+def ensure_api_key(path=None):
+    """Make sure POLYGON_API_KEY is in os.environ, loading it from a local, git-ignored
+    `.polygon_key` file (a single line) if it isn't already set. Returns True if a key is
+    present afterwards.
+
+    This is the ONE place the `.polygon_key` convention lives, so every entry point (scanner
+    refresh, backtest benchmark) loads it the same way — _api_key() calls it lazily, so callers
+    usually don't need to. `path` overrides the search (default: ./.polygon_key, then
+    ~/.polygon_key). Mirrors india.ensure_dhan_creds on the Dhan side.
+    """
+    if os.environ.get("POLYGON_API_KEY"):
+        return True
+    for p in ([path] if path else [".polygon_key", os.path.expanduser("~/.polygon_key")]):
+        if p and os.path.exists(p):
+            key = open(p, encoding="utf-8").read().strip()
+            if key:
+                os.environ["POLYGON_API_KEY"] = key
+                print(f"  loaded POLYGON_API_KEY from {p}")
+                return True
+    return bool(os.environ.get("POLYGON_API_KEY"))
+
+
 def _api_key():
+    """Return the Polygon API key, auto-loading `.polygon_key` via ensure_api_key() first so any
+    entry point works without wiring the key itself; raise if none is available anywhere."""
+    ensure_api_key()
     try:
         return os.environ["POLYGON_API_KEY"]
     except KeyError:
@@ -239,3 +270,31 @@ def us_get_tf(sym, tf, cache):
     if tf == "1W":
         return resample_weekly(d)
     raise ValueError(f"Unsupported tf: {tf}")
+
+
+def fetch_benchmark_daily(ticker, days=760):
+    """Daily OHLCV for one benchmark ticker (e.g. 'SPY', 'QQQ') via Polygon's single-ticker
+    aggregates endpoint. Returns a DataFrame indexed by America/New_York date (so it lines up
+    with load_cache's stock frames), or None if Polygon returns nothing.
+
+    Used by the backtest study as the buy-&-hold benchmark each strategy is measured against
+    (see US_BENCHMARKS). SPY/QQQ are ETFs, excluded from the type=CS scan universe, so they're
+    pulled directly here rather than read from the per-date cache. Free Polygon serves ~2y of
+    history, so a `days` beyond that simply returns what's available. Reuses _get (apiKey + 429
+    backoff); mirrors india.fetch_index_daily on the Dhan side.
+    """
+    end = dt.date.today()
+    start = end - dt.timedelta(days=days)
+    url = f"{POLY}/v2/aggs/ticker/{ticker}/range/1/day/{start.isoformat()}/{end.isoformat()}"
+    j = _get(url, {"adjusted": "true", "sort": "asc", "limit": 50000})
+    rows = j.get("results") or []
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    idx = pd.to_datetime(df["t"], unit="ms", utc=True).dt.tz_convert("America/New_York")
+    out = pd.DataFrame({
+        "Open": df["o"].to_numpy(float), "High": df["h"].to_numpy(float),
+        "Low": df["l"].to_numpy(float), "Close": df["c"].to_numpy(float),
+        "Volume": df["v"].to_numpy(float),
+    }, index=pd.DatetimeIndex(idx.to_numpy()))
+    return out.sort_index()

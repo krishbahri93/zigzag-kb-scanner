@@ -32,9 +32,9 @@ HOW TO EXTEND
   * change the tree shape    -> edit english_tree(); keep reading each line's text from
                                the rule INSTANCE's `.description` so the no-drift
                                guarantee holds.
-  * a non-rupee currency     -> the ₹ glyph is hard-coded to match the policy JSONs
-                               (rupee-denominated); thread a symbol through if a market
-                               ever reports in another currency.
+  * a non-rupee currency     -> pass currency= to english_tree() and symbol= to _fmt_money();
+                               the ₹ default keeps rupee markets unchanged (US passes '$'). The
+                               sizing rule descriptions take a {currency} placeholder too.
 """
 import math
 
@@ -79,10 +79,11 @@ def _fmt_days(x):
     return "N/A" if x is None else f"{x:.1f}"
 
 
-def _fmt_money(x):
-    """A rupee amount with thousands separators (₹2,000,000). Whole-rupee precision —
-    capital params are round numbers and decimals only add noise to the tree."""
-    return f"₹{x:,.0f}"
+def _fmt_money(x, symbol="₹"):
+    """A money amount with thousands separators and a currency `symbol` (default ₹, e.g.
+    ₹2,000,000 / $20,000). Whole-unit precision — capital params are round numbers and decimals
+    only add noise. `symbol` lets a non-rupee market (US passes '$') print its own glyph."""
+    return f"{symbol}{x:,.0f}"
 
 
 # ======================================================================================
@@ -142,7 +143,7 @@ def _capital_utilization_pct(result):
 # english_tree — the generated, never-drifting plain-English view of a policy.
 # ======================================================================================
 
-def english_tree(policy) -> str:
+def english_tree(policy, currency="₹") -> str:
     """Render `policy` as a plain-English hierarchy, generated from the rule descriptions.
 
     Builds the SAME rule instances the simulator runs (registry.build_rules) and fills
@@ -166,13 +167,13 @@ def english_tree(policy) -> str:
     #   sizing got **sizing_params · rotation got **rotation_params · the others got
     #   nothing. .format() with no matching placeholders is a harmless no-op, so the two
     #   placeholder-free rules (selection/exit) pass through unchanged.
-    sizing_desc = rules["sizing"].description.format(**policy.sizing_params)
+    sizing_desc = rules["sizing"].description.format(currency=currency, **policy.sizing_params)
     selection_desc = rules["selection"].description.format()
     rotation_desc = rules["rotation"].description.format(**policy.rotation_params)
     exit_desc = rules["exit"].description.format()
 
     capital_line = (
-        f"{_fmt_money(policy.total_capital)} · "
+        f"{_fmt_money(policy.total_capital, currency)} · "
         f"max {policy.max_concurrent} positions"
     )
 

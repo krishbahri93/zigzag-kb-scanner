@@ -1,0 +1,10 @@
+{
+  "name": "s4_diversified",
+  "description": "Maximum diversification: many small bets - up to 20 positions of $1k each, held to exit. Wide spread smooths the ride but dilutes each winner.",
+  "capital": {"total": 20000, "max_concurrent": 20},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 1000}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "none"},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.0, "slippage_pct": 0.05, "stt_pct": 0.0}
+}

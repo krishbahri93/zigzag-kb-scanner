@@ -1,0 +1,10 @@
+{
+  "name": "s5_fractional_rotation",
+  "description": "Fixed-fractional + rotation: size every trade at 10% of capital, cap the book at 8 positions, and rotate capital out of near-target winners to fund fresh setups. A percent-sized, actively-recycled book.",
+  "capital": {"total": 20000, "max_concurrent": 8},
+  "sizing": {"rule": "percent_of_capital", "params": {"pct": 10}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "nearest_to_target_band", "params": {"start": 10, "step": 10, "max": 40}},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.0, "slippage_pct": 0.05, "stt_pct": 0.0}
+}

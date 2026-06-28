@@ -9,7 +9,6 @@ Usage:
     python scripts/refresh_data.py        # refresh + scan full cached universe
     python scripts/refresh_data.py 50     # refresh, then scan first 50 symbols
 """
-import os
 import sys
 
 # Windows consoles default to cp1252, which can't encode Unicode in some log lines.
@@ -21,17 +20,13 @@ except Exception:
 
 
 def _load_key():
-    if os.environ.get("POLYGON_API_KEY"):
-        return
-    for path in (".polygon_key", os.path.expanduser("~/.polygon_key")):
-        if os.path.exists(path):
-            key = open(path).read().strip()
-            if key:
-                os.environ["POLYGON_API_KEY"] = key
-                print(f"  loaded POLYGON_API_KEY from {path}")
-                return
-    sys.exit("POLYGON_API_KEY not set and no .polygon_key file found. "
-             "Put your key in a file named .polygon_key in this folder.")
+    """Ensure POLYGON_API_KEY is set, or exit with a clear message. Delegates the actual loading
+    to us.ensure_api_key() — the single `.polygon_key` loader shared by every entry point — so the
+    file convention lives in exactly one place (mirrors backfill_india._load_creds on the Dhan side)."""
+    from pinescan.markets import us
+    if not us.ensure_api_key():
+        sys.exit("POLYGON_API_KEY not set and no .polygon_key file found. "
+                 "Put your key in a file named .polygon_key in this folder.")
 
 
 def main():

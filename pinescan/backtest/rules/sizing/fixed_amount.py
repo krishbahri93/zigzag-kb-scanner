@@ -23,10 +23,10 @@ from ..registry import register
 
 @register("sizing", "fixed_amount")
 class FixedAmount(SizingRule):
-    """Allocate a fixed rupee amount to every trade. Built from the policy's
-    capital.per_trade, which build_rules() passes in as `amount`."""
+    """Allocate a fixed cash amount to every trade (currency per the market). Built from the
+    policy's capital.per_trade, which build_rules() passes in as `amount`."""
 
-    description = "Allocate a fixed ₹{amount} per trade."
+    description = "Allocate a fixed {currency}{amount} per trade."
 
     def __init__(self, amount, total_capital=None):
         # `amount` = rupees per trade from the policy's sizing.params. `total_capital`

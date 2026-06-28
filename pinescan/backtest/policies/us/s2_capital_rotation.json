@@ -1,0 +1,10 @@
+{
+  "name": "s2_capital_rotation",
+  "description": "Equal-weight, but recycle capital: same 10 x $2k sizing, and when fully invested, sell the open position nearest its target (widening 10%->40% band) to fund a fresh setup instead of skipping it.",
+  "capital": {"total": 20000, "max_concurrent": 10},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 2000}},
+  "selection": {"rule": "free_capital_first"},
+  "rotation": {"rule": "nearest_to_target_band", "params": {"start": 10, "step": 10, "max": 40}},
+  "exit": {"rule": "scanner_default"},
+  "costs": {"brokerage_pct": 0.0, "slippage_pct": 0.05, "stt_pct": 0.0}
+}
