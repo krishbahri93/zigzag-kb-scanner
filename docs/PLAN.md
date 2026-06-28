@@ -17,7 +17,7 @@ Turn the parity-verified **V2** scanner into a product: a clean, V2-only codebas
 - **Live cadence:** near-real-time **polling** (re-run every few min during market hours on
   1-min / 15-min-delayed bars). No tick streaming — V2 is a swing strategy.
 - **Stack:** FastAPI backend + React frontend. **Private** use (no NSE redistribution concern).
-- **Markets:** US (Polygon) + India (Dhan / Fyers / yfinance) behind one data interface.
+- **Markets:** US (Polygon) + India (Dhan) behind one data interface.
 - **Backtester:** its own `backtest/` layer; governs **money & portfolio management only**
   (V2's entry/TP/SL stay fixed & verified); **India first**; **Python rule files + JSON policies**.
 
@@ -74,9 +74,9 @@ without disturbing the others.
 
 ## Open data considerations (India-first)
 
-- **India daily history:** the backtest needs reliable multi-year Nifty-500 daily bars. yfinance
-  EOD is workable for *daily* history (its intraday is the unreliable part); cache to parquet like
-  the US layer. Dhan ₹499/mo is for the *live* feed later.
+- **India daily history:** the backtest needs reliable multi-year Nifty-500 daily bars. Dhan
+  serves both the daily history (backfilled to parquet like the US layer) and the live feed —
+  one authenticated provider for the whole India side, no second EOD source.
 - **V2-on-India parity (recommended checkpoint):** export 2-3 NSE charts from TradingView and
   parity-check before trusting India backtest numbers. The engine is market-agnostic and
   US-verified across 24 symbols, so this is a sanity check, not a rebuild.

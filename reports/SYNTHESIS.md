@@ -6,6 +6,13 @@ Five colloquial money-management strategies over the same V2 signals, each run o
 trailing windows. Capital and signals are identical across the board — only the sizing
 and position-management rules differ, so any difference is the strategy's doing.
 
+## The strategies
+- **s1_equal_weight** — Equal-weight, set-and-forget: spread the capital across up to 10 equal-sized positions and hold each to its V2 target or stop. No active capital management.
+- **s2_capital_rotation** — Equal-weight, but recycle capital: same 10 x 2L sizing, and when fully invested, sell the open position nearest its target (widening 10%->40% band) to fund a fresh setup instead of skipping it.
+- **s3_concentrated** — High conviction, concentrated: fewer but bigger bets - up to 5 positions of 4L each, held to exit. More exposure per name, higher variance.
+- **s4_diversified** — Maximum diversification: many small bets - up to 20 positions of 1L each, held to exit. Wide spread smooths the ride but dilutes each winner.
+- **s5_fractional_rotation** — Fixed-fractional + rotation: size every trade at 10% of capital, cap the book at 8 positions, and rotate capital out of near-target winners to fund fresh setups. A percent-sized, actively-recycled book.
+
 ## Total return %
 | Strategy | 5y | 3y | 1y | 6mo | 3mo | 6wk |
 |---|---|---|---|---|---|---|
@@ -14,6 +21,8 @@ and position-management rules differ, so any difference is the strategy's doing.
 | s3_concentrated | +113.8 | +98.5 | -15.6 | +14.9 | +12.3 | +13.1 |
 | s4_diversified | +56.5 | +33.9 | -3.0 | -2.6 | +9.5 | +3.7 |
 | s5_fractional_rotation | +58.3 | +57.6 | +1.1 | -6.0 | +10.1 | +7.5 |
+| _Nifty 50 (buy & hold)_ | +51.7 | +28.9 | -4.7 | -8.0 | +3.2 | +1.5 |
+| _Sensex (buy & hold)_ | +45.7 | +22.4 | -6.8 | -9.7 | +2.4 | +2.3 |
 
 ## CAGR %
 | Strategy | 5y | 3y | 1y | 6mo | 3mo | 6wk |

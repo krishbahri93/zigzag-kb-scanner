@@ -1,18 +1,19 @@
 """
 India (NSE) market data — Nifty 500 universe + daily/intraday OHLCV.
 
-Two sources, chosen by env var `KWM_DATA_SOURCE`:
-  - "yahoo" (default): yfinance EOD — fine for daily history / backtesting.
-  - "dhan": Dhan broker API — daily + today's intraday partial bar (live use).
+Single source: the Dhan broker API. Equities (NSE_EQ) and the benchmark indices
+(IDX_I, e.g. Nifty 50 / Sensex) both come from the one authenticated Dhan account,
+so the whole India side uses ONE authenticated provider — no second EOD source.
+  - daily history → _fetch_dhan_daily (equities) / fetch_index_daily (indices)
+  - today's partial bar → _fetch_today_partial (appended to 1D when live)
 
-Salvaged verbatim from the old Indian-strategy engine; all strategy/output logic
-was dropped — this module is data-fetching only.
+Salvaged from the old Indian-strategy engine; all strategy/output logic was dropped —
+this module is data-fetching only.
 
 Env:
-  KWM_DATA_SOURCE   "yahoo" (default) | "dhan"
   DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN   Dhan credentials (token refreshes daily)
   DHAN_SCRIP_URL    Dhan scrip master CSV (optional override)
-  ZIGZAG_INTRADAY   "true"/"false" — append today's intraday partial bar (Dhan only)
+  ZIGZAG_INTRADAY   "true"/"false" — append today's intraday partial bar to 1D
 """
 import os
 import datetime as dt
@@ -22,7 +23,6 @@ import pandas as pd
 from .base import resample_weekly
 
 # ---- config ----
-DATA_SOURCE = os.environ.get("KWM_DATA_SOURCE", "yahoo").lower()
 DHAN_SCRIP_URL = os.environ.get(
     "DHAN_SCRIP_URL", "https://images.dhan.co/api-data/api-scrip-master.csv"
 )
@@ -33,6 +33,11 @@ INTRADAY_INTERVAL = 15  # minutes per intraday bar
 # US grouped endpoint which caches one parquet per date). Module-level so tests can
 # monkeypatch it to a tmp dir; data/ is git-ignored, created lazily on first backfill.
 CACHE_DIR = "data/cache/india"
+
+# Well-known Dhan INDEX security ids (exchange_segment "IDX_I", instrument "INDEX"). Indices
+# aren't in the equity _secid map (_dhan_client filters to EQ/BE), so their ids are listed here
+# for the backtest's benchmark — same authenticated provider as the stocks, no second source.
+INDEX_IDS = {"Nifty 50": "13", "Sensex": "51"}
 
 
 # ============================================================================
@@ -63,33 +68,52 @@ def load_nifty500():
 
 
 # ============================================================================
-# DATA FETCHERS — Yahoo (default) and Dhan (real-time)
+# DATA FETCHERS — Dhan (daily history for equities + indices, live intraday)
 # ============================================================================
-
-def _fetch_yahoo(symbol, interval, period):
-    """OHLCV via yfinance for NSE symbols. Symbol like 'RELIANCE' (no .NS)."""
-    import yfinance as yf
-    df = yf.download(symbol + ".NS", interval=interval, period=period,
-                     progress=False, auto_adjust=False)
-    if df is None or len(df) == 0:
-        return None
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
-    if df.index.tz is not None:
-        df.index = df.index.tz_convert("Asia/Kolkata")
-    return df
-
 
 # Dhan client cache (created once per session)
 _dhan = None
 _secid = {}
 
+# The two creds Dhan needs: client id + a daily-refreshed access token.
+_DHAN_CRED_KEYS = ("DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN")
+
+
+def ensure_dhan_creds(path=None):
+    """Make sure DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN are in os.environ, loading them from a local,
+    git-ignored `.dhan_creds` file (KEY=VALUE lines) if they aren't already set. Existing env values
+    win (setdefault). Returns True if both creds are present afterwards, else False — the caller
+    decides whether that's fatal (the scanner/backtest can still run on cached parquet with no token).
+
+    This is the ONE place the `.dhan_creds` convention lives, so every entry point (live scanner,
+    backfill, backtest matrix) loads creds the same way — _dhan_client() calls it lazily, so callers
+    usually don't need to. `path` overrides the search (default: ./.dhan_creds, then ~/.dhan_creds).
+    """
+    if all(os.environ.get(k) for k in _DHAN_CRED_KEYS):
+        return True
+    for p in ([path] if path else [".dhan_creds", os.path.expanduser("~/.dhan_creds")]):
+        if not p or not os.path.exists(p):
+            continue
+        for line in open(p, encoding="utf-8"):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())     # env wins over the file
+        print(f"  loaded Dhan creds from {p}")
+        break
+    return all(os.environ.get(k) for k in _DHAN_CRED_KEYS)
+
 
 def _dhan_client():
-    """Create Dhan client (v2.1+ with fallback) and load NSE-equity ID map."""
+    """Create Dhan client (v2.1+ with fallback) and load NSE-equity ID map.
+
+    Auto-loads creds from `.dhan_creds` via ensure_dhan_creds() so any entry point works without
+    wiring creds itself; raises KeyError if no creds are available anywhere (env or file).
+    """
     global _dhan, _secid
     if _dhan is None:
+        ensure_dhan_creds()                     # pull creds from .dhan_creds if not already in env
         cid = os.environ["DHAN_CLIENT_ID"]
         tok = os.environ["DHAN_ACCESS_TOKEN"]
         try:
@@ -111,37 +135,62 @@ def _dhan_client():
     return _dhan
 
 
-def _fetch_dhan_daily(symbol, days=1100):
-    """Dhan daily OHLCV. Returns DataFrame indexed by Asia/Kolkata datetime."""
+def _dhan_daily_ohlcv(security_id, exchange_segment, instrument_type, days):
+    """Core Dhan daily-history fetch — the single place that calls Dhan's daily endpoint.
+
+    Equities and indices differ ONLY in their (exchange_segment, instrument_type) pair and id,
+    so both public fetchers below funnel through here instead of repeating the request + parse.
+    Pulls `days` of history and returns an OHLCV DataFrame indexed by Asia/Kolkata datetime
+    (Volume is 0 when Dhan reports none, e.g. for indices), or None if Dhan returns no data.
+    Throttles 0.15s per call so big universe scans stay polite.
+
+    To add another Dhan instrument (e.g. a sector index), add a thin wrapper that calls this
+    with the right segment/instrument — don't re-inline the request.
+    """
     import time
     dh = _dhan_client()
-    sid = _secid.get(symbol.upper())
-    if not sid:
-        return None
-    time.sleep(0.15)  # gentle throttle for big scans
+    time.sleep(0.15)                                    # gentle throttle for big scans
     to_d = dt.date.today()
     from_d = to_d - dt.timedelta(days=days)
     r = dh.historical_daily_data(
-        security_id=sid, exchange_segment="NSE_EQ",
-        instrument_type="EQUITY", expiry_code=0,
-        from_date=str(from_d), to_date=str(to_d)
+        security_id=str(security_id), exchange_segment=exchange_segment,
+        instrument_type=instrument_type, expiry_code=0,
+        from_date=str(from_d), to_date=str(to_d),
     )
     d = r.get("data") if isinstance(r, dict) else None
     if not d or "close" not in d:
         return None
     out = pd.DataFrame({
         "Open": d["open"], "High": d["high"], "Low": d["low"],
-        "Close": d["close"], "Volume": d.get("volume", [0] * len(d["close"]))
+        "Close": d["close"], "Volume": d.get("volume", [0] * len(d["close"])),
     })
     ts = d.get("timestamp") or d.get("start_Time") or d.get("time")
     if ts is not None:
-        idx = pd.to_datetime(pd.Series(ts), unit="s", errors="coerce")
-        out.index = idx
+        out.index = pd.to_datetime(pd.Series(ts), unit="s", errors="coerce")
         try:
             out.index = out.index.tz_localize("UTC").tz_convert("Asia/Kolkata")
         except Exception:
             pass
     return out.dropna()
+
+
+def _fetch_dhan_daily(symbol, days=1100):
+    """Dhan daily OHLCV for one NSE equity (NSE_EQ / EQUITY). Resolves the trading symbol to its
+    Dhan security id via _secid, then delegates the actual fetch to _dhan_daily_ohlcv. Returns a
+    DataFrame indexed by Asia/Kolkata datetime, or None if the symbol isn't in Dhan's equity map."""
+    sid = _secid.get(symbol.upper())
+    if not sid:
+        return None
+    return _dhan_daily_ohlcv(sid, "NSE_EQ", "EQUITY", days)
+
+
+def fetch_index_daily(security_id, days=1825):
+    """Daily OHLCV for an INDEX via Dhan's IDX_I segment (e.g. Nifty 50 = '13', Sensex = '51';
+    see INDEX_IDS). Indices live in a different segment and aren't in the equity _secid map, so the
+    caller passes the Dhan id directly. Same _dhan_daily_ohlcv core as the equity fetch — only the
+    segment/instrument differ. Used for the backtest benchmark so the index comes from the SAME
+    provider as the stocks (no second data source)."""
+    return _dhan_daily_ohlcv(str(security_id), "IDX_I", "INDEX", days)
 
 
 def _fetch_today_partial(symbol):
@@ -210,40 +259,32 @@ def _fetch_today_partial(symbol):
 
 
 def get_tf(symbol, tf):
-    """Fetch OHLCV for one symbol at one timeframe ('1D'/'1W'). Returns DataFrame or None.
+    """Fetch OHLCV for one symbol at one timeframe ('1D'/'1W') from Dhan. Returns DataFrame or None.
 
-    For 1D + Dhan with intraday enabled, appends today's intraday-aggregated partial
-    bar so the engine sees live price action before Dhan's daily endpoint updates.
+    For 1D with intraday enabled (ZIGZAG_INTRADAY), appends today's intraday-aggregated partial
+    bar so the engine sees live price action before Dhan's daily endpoint posts the official bar.
     """
-    src = os.environ.get("KWM_DATA_SOURCE", DATA_SOURCE).lower()
-    if src == "dhan":
-        if tf == "1D":
-            df = _fetch_dhan_daily(symbol, days=1100)
-            if df is None or len(df) == 0:
-                return df
-            if not ENABLE_INTRADAY:
-                return df
-            today = dt.date.today()
-            try:
-                last_date = df.index[-1].date()
-            except Exception:
-                last_date = None
-            if last_date is not None and last_date >= today:
-                return df
-            if today.weekday() >= 5:
-                return df
-            partial = _fetch_today_partial(symbol)
-            if partial is not None and len(partial) > 0:
-                df = pd.concat([df, partial])
-            return df
-        if tf == "1W":
-            return resample_weekly(_fetch_dhan_daily(symbol, days=1800))
-        raise ValueError(f"Unsupported tf: {tf}")
-    # Yahoo (default) — no intraday integration; yfinance intraday is unreliable
     if tf == "1D":
-        return _fetch_yahoo(symbol, "1d", "3y")
+        df = _fetch_dhan_daily(symbol, days=1100)
+        if df is None or len(df) == 0:
+            return df
+        if not ENABLE_INTRADAY:
+            return df
+        today = dt.date.today()
+        try:
+            last_date = df.index[-1].date()
+        except Exception:
+            last_date = None
+        if last_date is not None and last_date >= today:
+            return df
+        if today.weekday() >= 5:
+            return df
+        partial = _fetch_today_partial(symbol)
+        if partial is not None and len(partial) > 0:
+            df = pd.concat([df, partial])
+        return df
     if tf == "1W":
-        return _fetch_yahoo(symbol, "1wk", "5y")
+        return resample_weekly(_fetch_dhan_daily(symbol, days=1800))
     raise ValueError(f"Unsupported tf: {tf}")
 
 
@@ -257,7 +298,7 @@ def get_universe():
 
 
 def get_daily(symbol):
-    """Daily OHLCV for one NSE symbol (source per KWM_DATA_SOURCE)."""
+    """Daily OHLCV for one NSE symbol (Dhan)."""
     return get_tf(symbol, "1D")
 
 

@@ -16,7 +16,6 @@ Usage:
     python scripts/backfill_india.py        # backfill the full Nifty-500
     python scripts/backfill_india.py 25     # smoke: backfill the first 25 symbols
 """
-import os
 import sys
 
 # Windows consoles default to cp1252, which can't encode Unicode in some log lines.
@@ -26,37 +25,19 @@ try:
 except Exception:
     pass
 
-# The two creds Dhan needs (client id + daily access token).
-_DHAN_KEYS = ("DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN")
-
 
 def _load_creds():
-    """Ensure DHAN_CLIENT_ID + DHAN_ACCESS_TOKEN are in os.environ.
+    """Ensure Dhan creds are set, or exit with a clear message.
 
-    If both are already set, do nothing. Otherwise read the first `.dhan_creds`
-    found (cwd, then ~) as KEY=VALUE lines and set any missing keys. Existing
-    environment values win (setdefault). Exits with a clear message if, after
-    that, either credential is still missing. Mirrors refresh_data._load_key but
-    for two values instead of one.
+    Delegates the actual loading to india.ensure_dhan_creds() — the single `.dhan_creds` loader
+    shared by every entry point — so the file convention lives in exactly one place. This wrapper
+    just turns "still missing" into a friendly exit, since a backfill can't proceed without a token.
     """
-    if all(os.environ.get(k) for k in _DHAN_KEYS):
-        return
-    for path in (".dhan_creds", os.path.expanduser("~/.dhan_creds")):
-        if not os.path.exists(path):
-            continue
-        for line in open(path, encoding="utf-8"):
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())   # env wins over file
-        print(f"  loaded Dhan creds from {path}")
-        break
-    missing = [k for k in _DHAN_KEYS if not os.environ.get(k)]
-    if missing:
-        sys.exit(f"Dhan creds not set ({', '.join(missing)}) and no usable "
-                 ".dhan_creds file found. Put DHAN_CLIENT_ID=... and "
-                 "DHAN_ACCESS_TOKEN=... lines in a file named .dhan_creds here.")
+    from pinescan.markets import india
+    if not india.ensure_dhan_creds():
+        sys.exit("Dhan creds not set (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN) and no usable "
+                 ".dhan_creds file found. Put DHAN_CLIENT_ID=... and DHAN_ACCESS_TOKEN=... "
+                 "lines in a file named .dhan_creds here.")
 
 
 def main():
