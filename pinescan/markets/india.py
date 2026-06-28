@@ -178,6 +178,7 @@ def _fetch_dhan_daily(symbol, days=1100):
     """Dhan daily OHLCV for one NSE equity (NSE_EQ / EQUITY). Resolves the trading symbol to its
     Dhan security id via _secid, then delegates the actual fetch to _dhan_daily_ohlcv. Returns a
     DataFrame indexed by Asia/Kolkata datetime, or None if the symbol isn't in Dhan's equity map."""
+    _dhan_client()                          # ensure the client + _secid map are loaded BEFORE the lookup
     sid = _secid.get(symbol.upper())
     if not sid:
         return None
@@ -344,6 +345,37 @@ def backfill(symbols, years=5, progress_every=25):
         if done % progress_every == 0 or done == total:
             print(f"    backfill {done}/{total} ({fetched} fetched this run) … {sym}")
     print(f"  backfill complete: {total} symbols scanned, {fetched} fetched this run")
+
+
+def refresh_recent(symbols, days=15, progress_every=50):
+    """Append each symbol's LATEST daily bars to its cached parquet — UNLIKE backfill, which skips
+    any symbol that's already cached and so never picks up today's bar.
+
+    For each symbol: fetch the last `days` of daily history via _fetch_dhan_daily, concat with the
+    existing parquet, dedupe by date (keep last, so a restated bar is corrected) + sort, and rewrite.
+    This is the daily-refresh path the forward-tester uses to pull today's FINAL daily bar. One Dhan
+    call per symbol (throttled inside _fetch_dhan_daily); symbols Dhan returns nothing for are left
+    untouched. Mirrors the per-symbol cache layout backfill/load_cache use.
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    total = len(symbols)
+    done = updated = 0
+    print(f"  refresh_recent: {total} symbols, last ~{days}d each …")
+    for sym in symbols:
+        done += 1
+        recent = _fetch_dhan_daily(sym, days=days)
+        if recent is not None and len(recent) > 0:
+            fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
+            if os.path.exists(fp):
+                merged = pd.concat([pd.read_parquet(fp), recent])
+                merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+            else:
+                merged = recent
+            merged.to_parquet(fp)
+            updated += 1
+        if done % progress_every == 0 or done == total:
+            print(f"    refresh {done}/{total} ({updated} updated) … {sym}")
+    print(f"  refresh_recent complete: {updated}/{total} symbols updated")
 
 
 def load_cache(symbols):

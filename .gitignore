@@ -21,5 +21,8 @@ __pycache__/
 data/
 *.egg-info/
 
+# live forward-test dashboards (regenerate every run; persisted state lives under data/)
+reports/forward/
+
 # local Dhan creds (never commit)
 .dhan_creds

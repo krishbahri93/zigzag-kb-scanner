@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy", "pandas", "requests", "pyarrow"]
 
 [project.optional-dependencies]
-india = ["dhanhq"]
+india = ["dhanhq", "pyotp"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]

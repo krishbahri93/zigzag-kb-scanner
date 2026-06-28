@@ -24,17 +24,14 @@ HOW A WINDOW WORKS
 PERF: the V2 signals are identical across every policy and window, so we detect them ONCE for the
 whole universe and pass them to all runs via `trades=`.
 
-MARKETS (DRY): the only things that differ by market — data source, benchmark, currency, policy
-dir, output dir, windows — live in the small Market configs below (_india_market / _us_market).
-Everything else (detect-once, the window loop, the detail report, the synthesis) is shared. The US
-cache load reuses the backtester's own pinescan.backtest.run._load_market, and the benchmark math
-is one generic helper fed each market's index/ETF close series.
+MARKETS (DRY): the per-market wiring — data source, benchmark, currency, policy dir — lives in
+`pinescan/study.py` (the `Market` config + builders + benchmark helper + formatters), shared with
+the forward-test runner. THIS script owns only what's matrix-specific: the timeframe WINDOWS and
+the output dir (below), the detail report, and the synthesis.
 """
 import os
 import sys
-import glob
 import argparse
-from dataclasses import dataclass
 
 import pandas as pd
 
@@ -47,13 +44,11 @@ except Exception:
 
 from pinescan.backtest.rules.registry import load_policy
 from pinescan.backtest import engine, events, report as rpt
-from pinescan.backtest import run as bt_run
-from pinescan.markets import india, us
-
-MIN_BARS = 60                       # skip thinly-listed symbols the engine can't warm up
-
-STRATEGIES = ["s1_equal_weight", "s2_capital_rotation", "s3_concentrated",
-              "s4_diversified", "s5_fractional_rotation"]
+from pinescan.study import (MIN_BARS, STRATEGIES, MARKETS,
+                            money as _money, pct as _pct, num as _num,
+                            lookback_days as _lookback_days,
+                            benchmark_returns as _benchmark_returns,
+                            rescale_capital as _rescale_capital)
 
 # (label, offset back from the last bar). Order = longest -> shortest. India has ~5y of Dhan
 # history; US (free Polygon) has ~2y, so its windows are scaled to fit. Both are 6 windows.
@@ -68,112 +63,9 @@ US_WINDOWS = [
     ("3mo", pd.DateOffset(months=3)), ("6wk", pd.DateOffset(weeks=6)),
 ]
 
-
-# ---------------------------------------------------------------------------
-# Market config — the only place the two markets differ (see module header).
-# ---------------------------------------------------------------------------
-@dataclass
-class Market:
-    """Everything the shared study loop needs that differs by market.
-
-    load_cache() -> {symbol: daily df}; bench_series(last, windows) -> {benchmark name: Close
-    series or None}. money_sym is the detail-report currency prefix ('Rs ' / '$'); tree_currency
-    is the glyph passed to report.english_tree ('₹' / '$'). To add a market, add a builder below
-    and register it in _MARKETS — nothing downstream changes.
-    """
-    key: str
-    title: str
-    capital_label: str
-    money_sym: str
-    tree_currency: str
-    policy_dir: str
-    out_dir: str
-    windows: list
-    load_cache: object
-    bench_series: object
-
-
-def _india_market():
-    """India: NSE Nifty-500 stocks + Nifty/Sensex benchmark, both from Dhan."""
-    def load():
-        # Use the cache dir itself as the universe (the source of truth) — don't re-fetch the
-        # Nifty-500 list over the network, which can fall back to a 20-stock shortlist.
-        syms = [os.path.splitext(os.path.basename(f))[0]
-                for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
-        cache = india.load_cache(syms)
-        # Dhan occasionally returns a duplicate date; dedupe (keep last) + sort so the simulator's
-        # price-by-date lookup returns a scalar, not a Series. (MIN_BARS filter is applied in main.)
-        return {s: df[~df.index.duplicated(keep="last")].sort_index()
-                for s, df in cache.items() if df is not None}
-
-    def bench(last, windows):
-        days = _lookback_days(last, windows)
-        out = {}
-        for name, sid in india.INDEX_IDS.items():
-            try:
-                df = india.fetch_index_daily(sid, days=days)
-            except Exception:
-                df = None
-            out[name] = df["Close"] if (df is not None and len(df)) else None
-        return out
-
-    return Market("india", "India (NSE Nifty-500)", "Rs 20,00,000", "Rs ", "₹",
-                  "pinescan/backtest/policies", "reports", INDIA_WINDOWS, load, bench)
-
-
-def _us_market():
-    """US: Polygon liquid-1000 stocks + SPY/QQQ benchmark, both from Polygon."""
-    def load():
-        # Reuse the backtester's own loader (universe.json + load_cache + MIN_BARS filter + trim);
-        # us.select_liquid_universe reads the cached universe.json, so this is network-free. Free
-        # Polygon caps history at ~2y; years=3 keeps all of it (the windows slice from there).
-        return bt_run._load_market("us", years=3)
-
-    def bench(last, windows):
-        days = _lookback_days(last, windows)
-        out = {}
-        for name, tkr in us.US_BENCHMARKS.items():
-            try:
-                df = us.fetch_benchmark_daily(tkr, days=days)
-            except Exception:
-                df = None
-            out[name] = df["Close"] if (df is not None and len(df)) else None
-        return out
-
-    return Market("us", "US (Polygon liquid-1000)", "$20,000", "$", "$",
-                  "pinescan/backtest/policies/us", "reports/us", US_WINDOWS, load, bench)
-
-
-_MARKETS = {"india": _india_market, "us": _us_market}
-
-
-# ---------------------------------------------------------------------------
-# formatting helpers (None-safe — a metric undefined on a run prints "N/A")
-# ---------------------------------------------------------------------------
-def _money(v, sym):
-    return "N/A" if v is None else f"{sym}{v:,.0f}"
-
-
-def _pct(v, signed=True):
-    if v is None:
-        return "N/A"
-    return f"{v:+.2f}%" if signed else f"{v:.2f}%"
-
-
-def _num(v, nd=2):
-    if v is None:
-        return "N/A"
-    return f"{v:.{nd}f}" if isinstance(v, float) else f"{v}"
-
-
-def _rescale_capital(policy, new_total):
-    """Override a policy's starting capital and scale fixed_amount sizing proportionally, so one
-    --capital knob resizes the whole study while preserving each strategy's fractional structure.
-    percent_of_capital sizes off the new total automatically, so it's left untouched."""
-    old = policy.total_capital
-    policy.total_capital = new_total
-    if old and "amount" in policy.sizing_params:
-        policy.sizing_params["amount"] = policy.sizing_params["amount"] * new_total / old
+# The matrix's own per-market concern: which timeframe set to sweep + where to write. (The shared
+# market config in pinescan.study holds only the data/benchmark/currency wiring.)
+_MATRIX = {"india": (INDIA_WINDOWS, "reports"), "us": (US_WINDOWS, "reports/us")}
 
 
 # ---------------------------------------------------------------------------
@@ -225,47 +117,10 @@ def _detail_md(strat, policy, wlabel, ws, last, result, mkt):
 
 
 # ---------------------------------------------------------------------------
-# benchmark — buy-&-hold % per window for each index/ETF (shared across markets)
-# ---------------------------------------------------------------------------
-def _lookback_days(last, windows):
-    """Calendar days of benchmark history to fetch: the longest window + 1y head-room, so
-    asof(last - longest_window) lands on a real bar instead of underflowing the series."""
-    last_ts = pd.Timestamp(last)
-    longest = max((last_ts - (last_ts - off)).days for _, off in windows)
-    return longest + 365
-
-
-def _benchmark_returns(close_by_name, last, windows):
-    """Per-window buy-&-hold % for each benchmark close series — the benchmark each strategy is
-    measured against. close_by_name = {label: Close Series or None}. For window W:
-    (close.asof(last) / close.asof(last - W) - 1) * 100. If last - W predates the series (free-tier
-    history shorter than the window, e.g. US 2y), anchor at the FIRST available close instead of
-    going N/A — an honest 'over the data we have' benchmark. Returns {label: {wlabel: pct or None}};
-    a label whose series is missing is dropped, so the synthesis simply omits its row."""
-    out = {}
-    last_ts = pd.Timestamp(last)
-    for name, c in close_by_name.items():
-        if c is None or len(c) == 0:
-            continue
-        c = c[~c.index.duplicated(keep="last")].sort_index()   # defensive: dedupe duplicate dates
-        end_px = c.asof(last_ts)                                # last close on/before the run's end
-        first_px = float(c.iloc[0])
-        rets = {}
-        for wlabel, off in windows:
-            start_px = c.asof(last_ts - off)
-            if start_px is None or pd.isna(start_px):
-                start_px = first_px            # window older than available history -> anchor at start
-            rets[wlabel] = (float((end_px / start_px - 1) * 100)
-                            if (start_px and start_px > 0 and not pd.isna(end_px)) else None)
-        out[name] = rets
-    return out
-
-
-# ---------------------------------------------------------------------------
 # the cross-run synthesis (one table per key metric + best-per-window)
 # ---------------------------------------------------------------------------
-def _write_synthesis(synth, last, mkt, bench=None):
-    wlabels = [w for w, _ in mkt.windows]
+def _write_synthesis(synth, last, mkt, windows, out_dir, bench=None):
+    wlabels = [w for w, _ in windows]
     L = ["# Strategy x Timeframe — Synthesis",
          "",
          f"_{mkt.title}, data through {last.date()}, capital {mkt.capital_label} fixed for all runs._",
@@ -316,7 +171,7 @@ def _write_synthesis(synth, last, mkt, bench=None):
         best = max(STRATEGIES, key=lambda s: (synth[(s, w)].get("total_return_pct") or -1e18))
         L.append(f"- **{w}**: {best}  ({(synth[(best, w)].get('total_return_pct')):+.1f}%)")
     L.append("")
-    open(f"{mkt.out_dir}/SYNTHESIS.md", "w", encoding="utf-8").write("\n".join(L))
+    open(f"{out_dir}/SYNTHESIS.md", "w", encoding="utf-8").write("\n".join(L))
 
 
 def main():
@@ -328,7 +183,8 @@ def main():
                     help="override starting capital for ALL policies (scales fixed sizing "
                          "proportionally); default = each policy's JSON value")
     args = ap.parse_args()
-    mkt = _MARKETS[args.market]()
+    mkt = MARKETS[args.market]()
+    windows, out_dir = _MATRIX[args.market]
     if args.capital is not None:
         mkt.capital_label = _money(args.capital, mkt.money_sym)   # reflect the override in the subtitle
 
@@ -344,17 +200,17 @@ def main():
     print(f"  {len(all_trades)} V2 entry signals total")
 
     last = max(df.index.max() for df in cache.values())
-    os.makedirs(mkt.out_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     synth = {}
     for strat in STRATEGIES:
         policy = load_policy(f"{mkt.policy_dir}/{strat}.json")
         if args.capital is not None:
             _rescale_capital(policy, args.capital)
-        for wlabel, off in mkt.windows:
+        for wlabel, off in windows:
             ws = last - off
             result = engine.run_backtest(cache, policy, window_start=ws, trades=all_trades)
-            open(f"{mkt.out_dir}/{strat}__{wlabel}.md", "w", encoding="utf-8").write(
+            open(f"{out_dir}/{strat}__{wlabel}.md", "w", encoding="utf-8").write(
                 _detail_md(strat, policy, wlabel, ws, last, result, mkt))
             synth[(strat, wlabel)] = result.metrics
             m = result.metrics
@@ -362,17 +218,17 @@ def main():
                   f"{m['num_trades']:4d} trades  ({m['n_target_hit']} tp / {m['n_stop_hit']} sl)")
 
     print(f"Fetching benchmark returns ({args.market}) ...")
-    bench = _benchmark_returns(mkt.bench_series(last, mkt.windows), last, mkt.windows)
+    bench = _benchmark_returns(mkt.bench_series(last, windows), last, windows)
     if not bench:
         # bench_series swallows fetch errors and returns None series; the usual cause is a missing
         # /expired provider key. Make that loud, not silent — otherwise the synthesis quietly loses
         # its benchmark rows and looks fine.
         print("  WARNING: no benchmark fetched — check the provider key/token (Dhan .dhan_creds "
               "or Polygon .polygon_key). The synthesis will omit the benchmark rows.")
-    _write_synthesis(synth, last, mkt, bench)
-    nrep = len(STRATEGIES) * len(mkt.windows)
+    _write_synthesis(synth, last, mkt, windows, out_dir, bench)
+    nrep = len(STRATEGIES) * len(windows)
     tail = "with benchmark" if bench else "WITHOUT benchmark (provider key/token missing?)"
-    print(f"\nWrote {nrep} reports + SYNTHESIS.md ({tail}) to {mkt.out_dir}/")
+    print(f"\nWrote {nrep} reports + SYNTHESIS.md ({tail}) to {out_dir}/")
 
 
 if __name__ == "__main__":
