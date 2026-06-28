@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pinescan"
+version = "0.1.0"
+description = "Faithful TradingView Pine-Script scanners ported to Python, multi-market."
+requires-python = ">=3.10"
+dependencies = ["numpy", "pandas", "requests", "pyarrow"]
+
+[project.optional-dependencies]
+india = ["yfinance", "dhanhq"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["pinescan*"]

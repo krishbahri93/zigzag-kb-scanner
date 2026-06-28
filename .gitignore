@@ -1,7 +1,3 @@
-# US scanner local artifacts (not committed; CI uses actions/cache)
-us_cache/
-us_universe.json
-
 # Secrets / scratch
 .env
 _probe.py
@@ -17,3 +13,10 @@ __pycache__/
 
 # logs
 *.log
+
+# local Polygon API key (never commit)
+.polygon_key
+
+# generated cache + scan outputs (not committed)
+data/
+*.egg-info/
