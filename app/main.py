@@ -1,0 +1,84 @@
+"""
+main.py — the local FastAPI app: Scanner + Forward + Settings, over the SAME pinescan.service
+functions the CLIs use (no scan/forward logic lives here). Launched by start.bat via
+`uvicorn app.main:app`. Read-only on the data cache (every page recomputes from it, so a crash can't
+corrupt anything); the one mutating action is Refresh, which runs in a single background job.
+
+ROUTES
+  GET  /                 -> /scanner?market=us
+  GET  /scanner          -> live actionable setups (the recommendations) for a market + scanner
+  GET  /forward          -> the 5-strategy paper-trading standings + open positions (table-first)
+  GET  /settings         -> enter API keys; trigger Refresh; see data freshness
+  POST /settings/keys    -> persist a user's keys (atomic, via service.write_*)
+  POST /refresh          -> start a background data refresh (single-flight)
+  GET  /status           -> {data_status, job} JSON for the status-strip poll
+"""
+import os
+
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+
+from pinescan import service
+from pinescan.scanners import registry
+from app.jobs import Jobs
+
+app = FastAPI(title="ZigZag Scanner (local)")
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+jobs = Jobs()
+MARKETS = ["us", "india"]
+
+
+def _ctx(request, market):
+    """The context every page needs: the status strip (data freshness, keys, current job) + the
+    market list + the registered scanners."""
+    return {"request": request, "markets": MARKETS, "market": market,
+            "data": service.data_status(market), "job": jobs.status(),
+            "scanners": registry.list_scanners()}
+
+
+@app.get("/")
+def home():
+    return RedirectResponse("/scanner?market=us")
+
+
+@app.get("/status")
+def status(market: str = "us"):
+    return JSONResponse({"data": service.data_status(market), "job": jobs.status()})
+
+
+@app.get("/scanner")
+def scanner_page(request: Request, market: str = "us", scanner: str = "nsv2"):
+    ctx = _ctx(request, market)
+    ctx["scanner"] = scanner
+    ctx["scan"] = service.read_scan(market, scanner)   # cached (fast); None until the first Refresh
+    return templates.TemplateResponse("scanner.html", ctx)
+
+
+@app.get("/forward")
+def forward_page(request: Request, market: str = "us"):
+    ctx = _ctx(request, market)
+    ctx["fwd"] = service.read_forward(market)          # cached (fast); None until the first Refresh
+    return templates.TemplateResponse("forward.html", ctx)
+
+
+@app.get("/settings")
+def settings_page(request: Request, market: str = "us"):
+    return templates.TemplateResponse("settings.html", _ctx(request, market))
+
+
+@app.post("/settings/keys")
+def save_keys(market: str = Form("us"), polygon_key: str = Form(""),
+              dhan_client_id: str = Form(""), dhan_token: str = Form("")):
+    if polygon_key.strip():
+        service.write_polygon_key(polygon_key)
+    if dhan_client_id.strip() and dhan_token.strip():
+        service.write_dhan_creds(dhan_client_id, dhan_token)
+    return RedirectResponse(f"/settings?market={market}", status_code=303)
+
+
+@app.post("/refresh")
+def refresh(request: Request, market: str = Form("us")):
+    jobs.start(lambda prog: service.refresh_market(market, prog), label=f"Refreshing {market} …")
+    back = request.headers.get("referer") or f"/scanner?market={market}"
+    return RedirectResponse(back, status_code=303)

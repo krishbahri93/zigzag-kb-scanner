@@ -11,6 +11,7 @@ dependencies = ["numpy", "pandas", "requests", "pyarrow"]
 
 [project.optional-dependencies]
 india = ["dhanhq", "pyotp"]
+app = ["fastapi", "uvicorn", "jinja2", "python-multipart"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]

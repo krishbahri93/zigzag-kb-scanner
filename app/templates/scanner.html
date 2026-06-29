@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Scanner &mdash; {{ market|upper }}</h1>
+<form method="get" action="/scanner" class="muted">
+  <input type="hidden" name="market" value="{{ market }}">
+  Scanner:
+  <select name="scanner" onchange="this.form.submit()">
+    {% for s in scanners %}<option value="{{ s }}"{% if s == scanner %} selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+</form>
+{% if error %}
+  <p class="err">{{ error }}</p>
+{% elif not scan %}
+  <p class="muted">No data yet &mdash; add your key on <a href="/settings?market={{ market }}">Settings</a> and click <b>Refresh data</b>.</p>
+{% else %}
+  <p class="muted">Data as of {{ scan.data_asof or 'n/a' }} &middot; scanned {{ scan.scanned_ok }} symbols &middot;
+     <b>{{ scan.actionable_count }}</b> actionable of {{ scan.setups_total }} setups.</p>
+  <table>
+    <tr><th>Ticker</th><th>State</th><th>Swing</th><th>LTP</th><th>Entry band</th><th>Target band</th><th>Stop</th></tr>
+    {% for r in scan.rows if (r.in_band or r.approaching or r.fired_entry) and not r.expired %}
+      {% set sw = (r.swings | selectattr('swing', 'equalto', r.active) | first) if r.active else (r.swings | first) %}
+      <tr>
+        <td>{{ r.sym }}</td>
+        <td>{% if r.in_band %}IN-BAND{% elif r.approaching %}approaching{% else %}entry fired{% endif %}</td>
+        <td>{{ r.active or '-' }}</td>
+        <td>{{ r.ltp }}</td>
+        <td>{% if sw %}{{ sw.entry_lo }} &ndash; {{ sw.entry_hi }}{% endif %}</td>
+        <td>{% if sw %}{{ sw.tp_lo }} &ndash; {{ sw.tp_hi }}{% endif %}</td>
+        <td>{% if sw %}{{ sw.sl }}{% endif %}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">These are the V2 buy setups currently in or near their entry band &mdash; enter
+    manually at your own discretion. Informational only, not financial advice.</p>
+{% endif %}
+{% endblock %}

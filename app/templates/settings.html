@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings &mdash; {{ market|upper }}</h1>
+<p class="muted">
+  Data: {{ data.last_date or 'none yet' }}{% if data.days_old is not none %} ({{ data.days_old }} days old){% endif %} &middot;
+  {{ data.n_cached }} files cached &middot;
+  Polygon key {{ 'set ✓' if data.keys.polygon else 'NOT set ✗' }} &middot;
+  Dhan creds {{ 'set ✓' if data.keys.dhan else 'NOT set ✗' }}
+</p>
+<form method="post" action="/settings/keys">
+  <input type="hidden" name="market" value="{{ market }}">
+  <h3>US &mdash; Polygon (a free key works)</h3>
+  <label>Polygon API key: <input type="text" name="polygon_key" size="48" placeholder="leave blank to keep current"></label>
+  <h3>India &mdash; Dhan (optional)</h3>
+  <label>Client ID: <input type="text" name="dhan_client_id" size="20"></label><br>
+  <label>Access token: <input type="text" name="dhan_token" size="60"></label><br><br>
+  <button type="submit">Save keys</button>
+</form>
+<p class="muted">After saving, click <b>Refresh data</b> (top bar) to fetch with your key. The first
+  US refresh downloads ~2 years of data and can take <b>1&ndash;2 hours</b> &mdash; leave it running;
+  you can close and reopen and it continues where it left off. Your keys are stored only on this
+  computer (.polygon_key / .dhan_creds) and never leave it.</p>
+{% endblock %}

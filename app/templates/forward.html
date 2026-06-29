@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Forward test &mdash; {{ market|upper }}</h1>
+{% if error %}
+  <p class="err">{{ error }}</p>
+{% elif not fwd %}
+  <p class="muted">No data yet &mdash; add your key on <a href="/settings?market={{ market }}">Settings</a> and click <b>Refresh data</b>.</p>
+{% else %}
+  <p class="muted">Paper trading since <b>{{ fwd.meta.since }}</b> &middot; data through {{ fwd.meta.last }} &middot;
+     {{ fwd.meta.capital }} per account &middot; all 5 strategies on the same V2 signals.</p>
+
+  <h2>Standings</h2>
+  <table>
+    <tr><th>Strategy</th><th>Equity</th><th>Return</th><th>Realized win%</th><th>PF</th><th>Open</th><th>Closed</th></tr>
+    {% for s in fwd.standings | sort(attribute='return_pct', reverse=true) %}
+      <tr>
+        <td>{{ s.strategy }}</td>
+        <td>{{ fwd.meta.currency }}{{ '{:,.0f}'.format(s.equity) }}</td>
+        <td class="{{ 'pos' if (s.return_pct is not none and s.return_pct >= 0) else 'neg' }}">{{ '%+.2f'|format(s.return_pct) if s.return_pct is not none else 'N/A' }}%</td>
+        <td>{{ '%.0f'|format(s.win_pct) if s.win_pct is not none else 'N/A' }}%</td>
+        <td>{{ '%.2f'|format(s.pf) if s.pf is not none else 'N/A' }}</td>
+        <td>{{ s.n_open }}</td><td>{{ s.n_closed }}</td>
+      </tr>
+    {% endfor %}
+    {% for b in fwd.benchmark %}
+      <tr class="bench"><td>{{ b.name }} (buy &amp; hold)</td><td></td>
+        <td>{{ '%+.2f'|format(b.return_pct) if b.return_pct is not none else 'N/A' }}%</td>
+        <td></td><td></td><td></td><td></td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Open positions <span class="muted">(marked to last close)</span></h2>
+  {% if (fwd.standings | sum(attribute='n_open')) == 0 %}
+    <p class="muted">No funded positions are open yet.</p>
+  {% else %}
+    {% for s in fwd.standings %}
+      {% set ps = fwd.positions[s.strategy] %}
+      {% if ps %}
+        <h3>{{ s.strategy }} &mdash; {{ ps|length }} open</h3>
+        <table>
+          <tr><th>Symbol</th><th>Entry</th><th>Now</th><th>Unrealized P&amp;L</th><th>Days</th><th>Swing</th></tr>
+          {% for p in ps %}
+            <tr>
+              <td>{{ p.symbol }}</td>
+              <td>{{ fwd.meta.currency }}{{ '{:,.2f}'.format(p.entry) }}</td>
+              <td>{{ fwd.meta.currency }}{{ '{:,.2f}'.format(p.now) }}</td>
+              <td class="{{ 'pos' if p.pnl >= 0 else 'neg' }}">{{ fwd.meta.currency }}{{ '{:,.0f}'.format(p.pnl) }}</td>
+              <td>{{ p.days }}</td><td>{{ p.swing }}</td>
+            </tr>
+          {% endfor %}
+        </table>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+{% endif %}
+{% endblock %}
