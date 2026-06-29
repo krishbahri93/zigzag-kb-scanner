@@ -41,7 +41,7 @@ HOW TO EXTEND
 """
 import math
 
-from .. import nsv2_engine
+from ..scanners import registry
 from .contracts import Trade
 
 
@@ -75,10 +75,10 @@ def _natural_exit(st_series, entry_k, index):
     return None, "open"
 
 
-def trades_for(symbol, df, params=None):
+def trades_for(symbol, df, scanner="nsv2", params=None):
     """Reconstruct every V2 swing-trade for one symbol from a single engine run.
 
-    Runs nsv2_engine.run(df, params) once (read-only) and replays the recorded
+    Runs the scanner's engine (default "nsv2") once (read-only) and replays the recorded
     per-swing state series to emit one Trade per entry that fired.
 
     For each swing i in 0..3 we walk its ST{i} series and look for a transition
@@ -107,13 +107,15 @@ def trades_for(symbol, df, params=None):
         the "one open position per symbol" rule is enforced later by the simulator,
         not here.
     """
-    # Merge once so swing_levels (which would otherwise KeyError on a partial
-    # dict) and the engine see the identical, fully-populated parameter set.
-    p = dict(nsv2_engine.DEFAULTS)
+    # Resolve the scanner (default nsv2) via the registry, then merge once so swing_levels (which
+    # would otherwise KeyError on a partial dict) and the engine see the identical, fully-populated
+    # parameter set. Default nsv2 -> byte-identical to the pre-registry behaviour.
+    sc = registry.get(scanner)
+    p = dict(sc.default_params)
     if params:
         p.update(params)
 
-    out = nsv2_engine.run(df, p)
+    out = sc.run(df, p)
 
     # The engine accepts either Title-case or TradingView-lower OHLCV; mirror that
     # when reading the fill price so trades_for works on whatever the caller passed.
@@ -141,7 +143,7 @@ def trades_for(symbol, df, params=None):
             if math.isnan(a_price) or math.isnan(b_price):
                 continue  # no valid A/B to price this swing — skip
 
-            lv = nsv2_engine.swing_levels(a_price, b_price, p)
+            lv = sc.swing_levels(a_price, b_price, p)
             exit_date, outcome = _natural_exit(st_series, k, index)
 
             trades.append(Trade(
