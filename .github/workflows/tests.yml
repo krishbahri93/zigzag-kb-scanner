@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install package
-        run: pip install -e .
+      - name: Install package + test deps
+        run: pip install -e ".[dev]"
       - name: Unit tests + 24-symbol parity gate
         run: python -m pytest tests/ -q
