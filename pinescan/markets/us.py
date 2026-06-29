@@ -20,6 +20,7 @@ import requests
 import pandas as pd
 
 from .base import resample_weekly
+from .. import io_safe
 
 # ============================================================================
 # CONFIG
@@ -165,7 +166,7 @@ def select_liquid_universe(n=1000, min_price=5.0, force=False):
     # (dashboard tolerates it). Real sector mapping is a later enhancement.
     sectors = {t: "-" for t in symbols}
     os.makedirs(os.path.dirname(UNIVERSE_FILE), exist_ok=True)   # data/ is gitignored: create on first run
-    json.dump({"symbols": symbols, "sectors": sectors}, open(UNIVERSE_FILE, "w"))
+    io_safe.atomic_write_text(UNIVERSE_FILE, json.dumps({"symbols": symbols, "sectors": sectors}))
     print(f"  universe: selected {len(symbols)} liquid names (>= ${min_price}, "
           f"by $-volume), saved to {UNIVERSE_FILE}")
     return symbols, sectors
@@ -219,7 +220,7 @@ def backfill(symbols, days=730, progress_every=10):
                  "c": r.get("c"), "v": r.get("v"), "t": r.get("t")}
                 for r in rows if r.get("T") in symset]
         cols = ["T", "o", "h", "l", "c", "v", "t"]
-        pd.DataFrame(keep, columns=cols).to_parquet(fp, index=False)  # empty on holidays
+        io_safe.atomic_to_parquet(pd.DataFrame(keep, columns=cols), fp, index=False)  # crash-safe; empty on holidays
         fetched += 1
         if done % progress_every == 0 or done == total:
             print(f"    backfill {done}/{total} ({fetched} fetched) … {d} "
@@ -238,7 +239,14 @@ def load_cache(symbols):
     for fn in sorted(os.listdir(CACHE_DIR)):
         if not fn.endswith(".parquet"):
             continue
-        df = pd.read_parquet(os.path.join(CACHE_DIR, fn))
+        fp = os.path.join(CACHE_DIR, fn)
+        df = io_safe.read_parquet_safe(fp)
+        if df is None:                    # corrupt (e.g. a pre-fix crash) → drop it; next refresh refetches
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
+            continue
         if df.empty:
             continue
         frames.append(df[df["T"].isin(symset)])

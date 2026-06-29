@@ -21,6 +21,7 @@ import datetime as dt
 import pandas as pd
 
 from .base import resample_weekly
+from .. import io_safe
 
 # ---- config ----
 DHAN_SCRIP_URL = os.environ.get(
@@ -340,7 +341,7 @@ def backfill(symbols, years=5, progress_every=25):
         if not os.path.exists(fp):                       # resume: skip cached symbols
             df = _fetch_dhan_daily(sym, days=years * 365)
             if df is not None and len(df) > 0:
-                df.to_parquet(fp)                        # index = Asia/Kolkata dates
+                io_safe.atomic_to_parquet(df, fp)        # index = Asia/Kolkata dates; crash-safe
                 fetched += 1
         if done % progress_every == 0 or done == total:
             print(f"    backfill {done}/{total} ({fetched} fetched this run) … {sym}")
@@ -366,12 +367,13 @@ def refresh_recent(symbols, days=15, progress_every=50):
         recent = _fetch_dhan_daily(sym, days=days)
         if recent is not None and len(recent) > 0:
             fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
-            if os.path.exists(fp):
-                merged = pd.concat([pd.read_parquet(fp), recent])
+            old = io_safe.read_parquet_safe(fp)          # None if absent OR corrupt -> treat as fresh
+            if old is not None:
+                merged = pd.concat([old, recent])
                 merged = merged[~merged.index.duplicated(keep="last")].sort_index()
             else:
                 merged = recent
-            merged.to_parquet(fp)
+            io_safe.atomic_to_parquet(merged, fp)        # crash-safe
             updated += 1
         if done % progress_every == 0 or done == total:
             print(f"    refresh {done}/{total} ({updated} updated) … {sym}")
@@ -388,6 +390,13 @@ def load_cache(symbols):
     cache = {}
     for sym in symbols:
         fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
-        if os.path.exists(fp):
-            cache[sym] = pd.read_parquet(fp)
+        df = io_safe.read_parquet_safe(fp)
+        if df is None:                      # absent or corrupt; drop a corrupt file so refresh refetches
+            if os.path.exists(fp):
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
+            continue
+        cache[sym] = df
     return cache
