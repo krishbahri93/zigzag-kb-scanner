@@ -1,0 +1,22 @@
+PINE SCRIPT SOURCE — where to get it
+=====================================
+
+The ZigZag KB Fib Dual Trade indicator is published as OPEN-SOURCE on TradingView,
+so the full Pine Script v5 source is viewable and copyable directly from the
+published page:
+
+  https://in.tradingview.com/script/s0BdSUIs-ZigZag-KB-Fib-Dual-Trade/
+
+To save a local copy of the source:
+  1. Open the link above.
+  2. Click "Source code" near the top of the script page.
+  3. Copy the full script and paste it into a file named
+     ZigZag_KB_Fib_Dual_Trade.pine  (place it in this folder).
+
+It was not bundled into this ZIP because the canonical, always-current version
+lives on TradingView — pulling it from the published page guarantees you have the
+exact version that's live, with no risk of a stale local copy drifting from it.
+
+The complete behavioral spec (every level, trigger, filter, state, and alert) is
+captured in INDICATOR_SUMMARY.md and INDICATOR_PARAMETERS.md in this folder, which
+is enough to rebuild the indicator from scratch if ever needed.

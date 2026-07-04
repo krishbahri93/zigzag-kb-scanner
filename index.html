@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ZigZag KB Scanner</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>body{margin:0}</style></head>
+<body><div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useRef } = React;
+
+// ============================================================================
+// CONFIG — change DATA_URL to point at your zigzag-kb-scanner repo
+// ============================================================================
+const DATA_URL    = "https://cdn.jsdelivr.net/gh/krishbahri93/zigzag-kb-scanner@main/results.json";
+const PERF_URL    = "https://cdn.jsdelivr.net/gh/krishbahri93/zigzag-kb-scanner@main/performance.json";
+const REFRESH_MS  = 15 * 60 * 1000;   // 15 minutes
+const TFS         = ["1D", "1W"];     // Daily + Weekly only for now
+// Action-based taxonomy (Watch / Enter / Holding). Engine output `action`
+// field is the primary, mapped from the legacy `signal` strings for back-compat.
+const ACTIONS     = ["Watch", "Enter", "Holding"];
+const SCAN_ACTIONS = ["Watch", "Enter"];           // Scanner tab shows these
+const HOLD_ACTIONS = ["Holding"];                  // Holding tab shows this
+const SL_PROX_PCT = 0.03;             // 3% from SL = warning in Holding tab
+
+// ============================================================================
+// ICONS (inline SVG, no library dependencies)
+// ============================================================================
+const SVG = ({ size = 16, className = "", children, style }) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>{children}</svg>;
+const Icon = {
+  Search:  p => <SVG {...p}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></SVG>,
+  Zap:     p => <SVG {...p}><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></SVG>,
+  Up:      p => <SVG {...p}><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h7v7"/></SVG>,
+  Down:    p => <SVG {...p}><path d="M3 7l6 6 4-4 7 7"/><path d="M14 16h7v-7"/></SVG>,
+  Download:p => <SVG {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></SVG>,
+  Check:   p => <SVG {...p}><path d="M20 6 9 17l-5-5"/></SVG>,
+  Chart:   p => <SVG {...p}><path d="M9 5v3"/><path d="M9 16v3"/><rect x="7" y="8" width="4" height="8" rx="1"/><path d="M17 3v4"/><path d="M17 17v4"/><rect x="15" y="7" width="4" height="10" rx="1"/></SVG>,
+  Sun:     p => <SVG {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></SVG>,
+  Moon:    p => <SVG {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></SVG>,
+  Clock:   p => <SVG {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></SVG>,
+  ArrowUR: p => <SVG {...p}><path d="M7 17 17 7"/><path d="M7 7h10v10"/></SVG>,
+  Grid:    p => <SVG {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></SVG>,
+  Cal:     p => <SVG {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></SVG>,
+  Trophy:  p => <SVG {...p}><path d="M6 9a6 6 0 0 0 12 0V4H6z"/><path d="M6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3M9 21h6M12 15v6"/></SVG>,
+  Refresh: p => <SVG {...p}><path d="M21 12a9 9 0 1 1-3-6.7L21 7"/><path d="M21 3v4h-4"/></SVG>,
+  ChevD:   p => <SVG {...p}><path d="m6 9 6 6 6-6"/></SVG>,
+  ChevR:   p => <SVG {...p}><path d="m9 6 6 6-6 6"/></SVG>,
+  Activity:p => <SVG {...p}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></SVG>,
+  Alert:   p => <SVG {...p}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></SVG>,
+  External:p => <SVG {...p}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/></SVG>,
+  Sort:    p => <SVG {...p}><path d="M8 7h13M8 12h9M8 17h5M3 7l2-2 2 2M3 17l2 2 2-2"/></SVG>,
+  Help:    p => <SVG {...p}><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.7.5-1.5 1-1.5 2"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></SVG>,
+};
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+const fmt = n => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString("en-IN", { maximumFractionDigits: 1 });
+const fmtPct = n => (n == null || isNaN(n)) ? "—" : Number(n).toFixed(1) + "%";
+
+// Parse ISO time string from engine (engine outputs IST with tz offset)
+// Returns a relative-time string like "2h ago" or "5d ago"
+function relativeTime(isoStr) {
+  if (!isoStr) return "—";
+  try {
+    const then = new Date(isoStr);
+    const now = new Date();
+    const ms = now - then;
+    if (ms < 0) return "just now";
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  } catch { return "—"; }
+}
+
+// Bars since trigger (estimate from confirmed_at and timeframe)
+function barsSinceTrigger(isoStr, tf) {
+  if (!isoStr) return null;
+  try {
+    const then = new Date(isoStr);
+    const now = new Date();
+    const ms = now - then;
+    if (tf === "1D") return Math.floor(ms / (1000 * 60 * 60 * 24));
+    if (tf === "1W") return Math.floor(ms / (1000 * 60 * 60 * 24 * 7));
+    return null;
+  } catch { return null; }
+}
+
+// Format generated_at into IST string. Engine sends ISO with +05:30 offset.
+function formatGeneratedAt(generated, fallbackLabel) {
+  if (fallbackLabel) return fallbackLabel;
+  if (!generated) return "—";
+  try {
+    const d = new Date(generated);
+    // Format in IST regardless of viewer's tz
+    return d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }) + " IST";
+  } catch { return generated; }
+}
+
+function tradingViewUrl(sym) {
+  return `https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(sym)}`;
+}
+
+// Stable sort comparator factory
+function makeComparator(key, dir) {
+  const mult = dir === "asc" ? 1 : -1;
+  return (a, b) => {
+    let av = a[key], bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;   // nulls last regardless of dir
+    if (bv == null) return -1;
+    if (typeof av === "string") return mult * av.localeCompare(bv);
+    return mult * (av - bv);
+  };
+}
+
+// Derive action from legacy signal string (for back-compat when engine output is older)
+function deriveAction(r) {
+  if (r.action) return r.action;
+  const s = r.signal;
+  if (!s) return null;
+  if (s === "Triggered T1" || s === "Triggered T2") return "Enter";
+  if (s === "Active T1" || s === "Active T2") return "Holding";
+  return "Watch";
+}
+
+// Action styling (the visual color of the row's primary action chip)
+const ACTION_STYLES = {
+  "Watch":   "bg-amber-500/15 text-amber-500 ring-amber-500/30",
+  "Enter":   "bg-emerald-500/15 text-emerald-500 ring-emerald-500/40",
+  "Holding": "bg-cyan-500/15 text-cyan-500 ring-cyan-500/30",
+};
+
+// Trade pill (T1 or T2)
+const TRADE_STYLES = {
+  "T1": "bg-violet-500/15 text-violet-500 ring-violet-500/30",
+  "T2": "bg-fuchsia-500/15 text-fuchsia-500 ring-fuchsia-500/30",
+};
+
+// Signal styling (color rings + text)
+const SIG_STYLES = {
+  "Approaching T1": "bg-slate-500/15 text-slate-400 ring-slate-400/30",
+  "In Zone T1":     "bg-amber-500/15 text-amber-500 ring-amber-500/30",
+  "Triggered T1":   "bg-emerald-500/15 text-emerald-500 ring-emerald-500/40",
+  "Active T1":      "bg-cyan-500/15 text-cyan-500 ring-cyan-500/30",
+  "In Zone T2":     "bg-amber-500/15 text-amber-500 ring-amber-500/30",
+  "Triggered T2":   "bg-fuchsia-500/15 text-fuchsia-500 ring-fuchsia-500/40",
+  "Active T2":      "bg-cyan-500/15 text-cyan-500 ring-cyan-500/30",
+};
+
+// ============================================================================
+// APP
+// ============================================================================
+function App() {
+  const [dark, setDark] = useState(false);
+  const [tab, setTab] = useState("scanner");
+
+  // Data
+  const [rows, setRows] = useState([]);
+  const [feedMeta, setFeedMeta] = useState(null);
+  const [perfData, setPerfData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [spin, setSpin] = useState(false);
+
+  // Filters
+  const [sectorFilter, setSectorFilter] = useState("All");
+  const [tfFilter, setTfFilter] = useState("all");
+  const [signalFilter, setSignalFilter] = useState("all");
+  const [tradeFilter, setTradeFilter] = useState("all"); // all / T1 / T2
+  const [showProv, setShowProv] = useState(true);
+  const [minDrop, setMinDrop] = useState(0);
+  const [search, setSearch] = useState("");
+
+  // Table state
+  const [sortKey, setSortKey] = useState("rr");
+  const [sortDir, setSortDir] = useState("desc");
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [selected, setSelected] = useState(() => new Set());
+  const [toast, setToast] = useState("");
+
+  // ---------- Data loading ----------
+  // Compute trade-management metrics for a row (entry/SL/TP, R, % move, etc.).
+  // Returns null fields where the row doesn't have enough info.
+  const computeMetrics = (r) => {
+    if (!r.active_trade) return {};
+    const isT2 = r.active_trade === "T2";
+    const entry = isT2 ? (r.t2_entry_hi || r.t1_hi) : r.t1_entry_hi;
+    const sl    = isT2 ? r.t2_sl : r.t1_sl;
+    const tpLo  = isT2 ? r.t2_tp_lo : r.t1_tp_lo;
+    if (entry == null || r.ltp == null) return { _entry: entry, _sl: sl, _tp: tpLo };
+    const move_pct  = (r.ltp - entry) / entry * 100;
+    const risk      = (sl != null) ? entry - sl : null;
+    const r_mult    = (risk != null && risk > 0) ? (r.ltp - entry) / risk : null;
+    // % progress toward TP: 0% = at entry, 100% = at TP. Negative = drawdown.
+    const totalReward = (tpLo != null) ? tpLo - entry : null;
+    const progress_pct = (totalReward != null && totalReward > 0)
+      ? (r.ltp - entry) / totalReward * 100
+      : null;
+    const entry_dist_pct = (entry > 0) ? (r.ltp - entry) / entry * 100 : null;
+    return {
+      _entry: entry, _sl: sl, _tp: tpLo,
+      _move_pct: move_pct, _r_mult: r_mult, _progress_pct: progress_pct,
+      _entry_dist_pct: entry_dist_pct,
+    };
+  };
+
+  const computeDaysHeld = (iso) => {
+    if (!iso) return null;
+    try {
+      const then = new Date(iso);
+      return Math.floor((Date.now() - then.getTime()) / 86400000);
+    } catch { return null; }
+  };
+
+  const ingest = (j) => {
+    if (!j || !Array.isArray(j.rows)) return;
+    const enriched = j.rows.map(r => {
+      const m = computeMetrics(r);
+      return {
+        ...r,
+        id: `${r.sym}-${r.tf}`,
+        sector: r.sector || "—",
+        action: deriveAction(r),
+        ...m,
+        _days_held: computeDaysHeld(r.confirmed_at),
+        _vol_shocker: (r.vol_x != null && r.vol_x >= 2.0),
+      };
+    });
+    setRows(enriched);
+    setFeedMeta({
+      generated_at: j.generated_at,
+      generated_label: j.generated_label || formatGeneratedAt(j.generated_at),
+      deviation: j.deviation,
+      count: enriched.length,
+      data_status: j.data_status || (enriched.length > 0 ? "ok" : "no_setups"),
+      stats: j.stats || null,
+    });
+  };
+
+  const loadFeed = () => {
+    setLoading(true);
+    // 1) Scanner data
+    fetch(DATA_URL + "?t=" + Date.now())
+      .then(r => r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status)))
+      .then(txt => {
+        const cleaned = txt
+          .replace(/:\s*NaN\b/g, ": null")
+          .replace(/:\s*-Infinity\b/g, ": null")
+          .replace(/:\s*Infinity\b/g, ": null");
+        try { ingest(JSON.parse(cleaned)); }
+        catch (e) { console.error("[Dashboard] parse error:", e.message); }
+      })
+      .catch(e => console.error("[Dashboard] fetch failed:", e.message))
+      .finally(() => setLoading(false));
+    // 2) Performance data (silent — Performance tab handles missing data gracefully)
+    fetch(PERF_URL + "?t=" + Date.now())
+      .then(r => r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status)))
+      .then(txt => {
+        const cleaned = txt
+          .replace(/:\s*NaN\b/g, ": null")
+          .replace(/:\s*-Infinity\b/g, ": null")
+          .replace(/:\s*Infinity\b/g, ": null");
+        try { setPerfData(JSON.parse(cleaned)); }
+        catch (e) { console.error("[Dashboard] perf parse error:", e.message); }
+      })
+      .catch(() => {});  // OK to fail silently — Performance tab will show "no data yet"
+  };
+
+  const onUpload = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try { ingest(JSON.parse(rd.result)); }
+      catch { alert("Could not read that file as JSON results."); }
+    };
+    rd.readAsText(f);
+  };
+
+  const refresh = () => {
+    setSpin(true);
+    loadFeed();
+    setTimeout(() => setSpin(false), 700);
+  };
+
+  useEffect(() => {
+    loadFeed();
+    const iv = setInterval(loadFeed, REFRESH_MS);
+    return () => clearInterval(iv);
+  }, []);
+
+  // ---------- Theme ----------
+  const c = dark ? {
+    grad: "radial-gradient(1100px 620px at 82% -12%, #0e2226 0%, #0a0f10 46%, #08090a 100%)",
+    text: "text-zinc-200", head: "text-zinc-50", sub: "text-zinc-500",
+    panel: "bg-white/[0.03] border-white/10", solid: "bg-white/[0.05]",
+    input: "bg-white/[0.04] border-white/10 placeholder-zinc-600",
+    rowB: "border-white/5", rowH: "hover:bg-white/[0.04]",
+    pill: "bg-white/[0.04] text-zinc-400 hover:text-zinc-200 border border-white/10",
+    chip: "bg-white/10 text-zinc-400",
+    sortable: "hover:text-zinc-100 cursor-pointer",
+  } : {
+    grad: "radial-gradient(1100px 620px at 82% -12%, #e9f4f3 0%, #f6f7f6 46%, #eef1f0 100%)",
+    text: "text-zinc-700", head: "text-zinc-900", sub: "text-zinc-500",
+    panel: "bg-white border-zinc-200", solid: "bg-zinc-50",
+    input: "bg-white border-zinc-300 placeholder-zinc-400",
+    rowB: "border-zinc-100", rowH: "hover:bg-emerald-50/60",
+    pill: "bg-white text-zinc-500 hover:text-zinc-900 border border-zinc-300",
+    chip: "bg-zinc-100 text-zinc-600",
+    sortable: "hover:text-zinc-900 cursor-pointer",
+  };
+  const TEAL = "#2a7c8f", MINT = "#37c79b", CHAR = "#3b4147";
+
+  // ---------- Derived data ----------
+  // Sectors: built from actual rows (NOT hardcoded — fixes the freeze bug)
+  const sectors = useMemo(() => {
+    const set = new Set();
+    rows.forEach(r => { if (r.sector && r.sector !== "—") set.add(r.sector); });
+    return ["All", ...Array.from(set).sort()];
+  }, [rows]);
+
+  // Split into scanner-rows (Watch + Enter) vs holding-rows (Holding)
+  const scannerSet = new Set(SCAN_ACTIONS);
+  const holdingSet = new Set(HOLD_ACTIONS);
+
+  // ---------- Filtering pipeline ----------
+  const filterCore = (rs) => rs.filter(r => {
+    if (sectorFilter !== "All" && r.sector !== sectorFilter) return false;
+    if (tfFilter !== "all" && r.tf !== tfFilter) return false;
+    if (tradeFilter !== "all" && r.active_trade !== tradeFilter) return false;
+    if (!showProv && r.provisional) return false;
+    if (minDrop > 0 && (r.drop_pct || 0) < minDrop) return false;
+    if (search && !r.sym.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const scannerRows = useMemo(() => {
+    let rs = rows.filter(r => scannerSet.has(r.action));
+    rs = filterCore(rs);
+    if (signalFilter !== "all") {
+      if (signalFilter === "VolShocker") {
+        rs = rs.filter(r => r._vol_shocker);
+      } else {
+        rs = rs.filter(r => r.action === signalFilter);
+      }
+    }
+    return [...rs].sort(makeComparator(sortKey, sortDir));
+  }, [rows, sectorFilter, tfFilter, tradeFilter, showProv, minDrop, search, signalFilter, sortKey, sortDir]);
+
+  const activeRows = useMemo(() => {
+    let rs = rows.filter(r => holdingSet.has(r.action));
+    rs = filterCore(rs);
+    return [...rs].sort(makeComparator(sortKey, sortDir));
+  }, [rows, sectorFilter, tfFilter, tradeFilter, showProv, minDrop, search, sortKey, sortDir]);
+
+  // Counts for the stats cards (scanner-only base)
+  const counts = useMemo(() => {
+    const base = rows.filter(r => scannerSet.has(r.action));
+    const b = filterCore(base);
+    return {
+      total: b.length,
+      Watch: b.filter(r => r.action === "Watch").length,
+      Enter: b.filter(r => r.action === "Enter").length,
+      VolShocker: b.filter(r => r._vol_shocker).length,
+    };
+  }, [rows, sectorFilter, tfFilter, tradeFilter, showProv, minDrop, search]);
+
+  // Holding tab counts
+  const activeCounts = useMemo(() => {
+    const base = rows.filter(r => holdingSet.has(r.action));
+    return {
+      total: base.length,
+      t1: base.filter(r => r.active_trade === "T1").length,
+      t2: base.filter(r => r.active_trade === "T2").length,
+    };
+  }, [rows]);
+
+  // ---------- Sort handlers ----------
+  const sortBy = (key) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir(key === "sym" || key === "sector" ? "asc" : "desc"); }
+  };
+  const sortIcon = (key) => sortKey !== key ? "" : (sortDir === "asc" ? " ▲" : " ▼");
+
+  // ---------- Row actions ----------
+  const toggleExpand = (id) => setExpanded(s => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const toggleSelect = (id) => setSelected(s => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+
+  const exportRows = () => selected.size > 0
+    ? (tab === "holding" ? activeRows : scannerRows).filter(r => selected.has(r.id))
+    : (tab === "holding" ? activeRows : scannerRows);
+
+  const tvWatchlist = () => {
+    const seen = new Set();
+    return exportRows()
+      .filter(r => { if (seen.has(r.sym)) return false; seen.add(r.sym); return true; })
+      .map(r => "NSE:" + r.sym).join(",");
+  };
+
+  const tvWatchlistSectioned = () => {
+    const by = {};
+    exportRows().forEach(r => { (by[r.tf] ||= new Set()).add("NSE:" + r.sym); });
+    return TFS.filter(t => by[t])
+      .map(t => `###${t},` + Array.from(by[t]).join(","))
+      .join(",");
+  };
+
+  const copyToClipboard = async (text) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const a = document.createElement("textarea");
+      a.value = text; document.body.appendChild(a);
+      a.select(); try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(a);
+    }
+    setToast("Copied for TradingView");
+    setTimeout(() => setToast(""), 1900);
+  };
+
+  const downloadText = (text, filename) => {
+    try {
+      const b = new Blob([text], { type: "text/plain" });
+      const u = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.href = u; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(u);
+      setToast("Watchlist .txt downloaded");
+    } catch { copyToClipboard(text); }
+    setTimeout(() => setToast(""), 1900);
+  };
+
+  const downloadCsv = () => {
+    const rs = exportRows();
+    if (!rs.length) return;
+    const cols = ["sym","sector","tf","signal","active_trade","provisional","A","B","drop_pct","ltp","t1_entry_lo","t1_entry_hi","t1_tp_lo","t1_tp_hi","t1_sl","t2_entry_lo","t2_entry_hi","t2_tp_lo","t2_tp_hi","t2_sl","ema_ok","vol_ok","vol_x","rr","confirmed_at"];
+    const head = cols.join(",");
+    const body = rs.map(r => cols.map(k => {
+      let v = r[k]; if (v == null) return "";
+      if (typeof v === "string" && v.includes(",")) return `"${v}"`;
+      return v;
+    }).join(",")).join("\n");
+    downloadText(head + "\n" + body, `zigzag_kb_scan_${tab}.csv`);
+  };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+  const isLive = !!feedMeta;
+  const visibleRows = tab === "holding" ? activeRows : (tab === "scanner" ? scannerRows : []);
+
+  return (
+    <div className={`min-h-screen w-full ${c.text}`} style={{ background: c.grad, fontFamily: "'Archivo', ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap');
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        @keyframes fin { from {opacity:0; transform:translateY(4px)} to {opacity:1; transform:none} }
+        .row { animation: fin .3s ease both; }
+        select { color-scheme: ${dark ? "dark" : "light"}; }
+      `}</style>
+
+      <div className="h-[3px] w-full" style={{ background: `linear-gradient(90deg, ${TEAL}, ${MINT} 55%, transparent)` }}/>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-16">
+
+        {/* HEADER */}
+        <header className="flex items-center justify-between py-4 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <svg width="34" height="42" viewBox="0 0 60 76" aria-label="logo">
+              <polygon points="7,37 29,37 29,61" fill="#5cc6a0"/>
+              <polygon points="31,15 31,36 52,36" fill={dark ? "#9aa0a7" : "#4d5258"}/>
+            </svg>
+            <div className="leading-none">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-lg font-extrabold tracking-tight" style={{ color: dark ? "#7fd9c4" : "#2a7c8f" }}>ZIGZAG KB</span>
+                <span className={`text-sm font-semibold ${c.head}`}>Fib Dual Trade Scanner</span>
+              </div>
+              <div className={`text-[11px] mt-1 tracking-wide ${c.sub}`}>Daily & Weekly Setups · by KB</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="text-right hidden sm:block">
+              {(() => {
+                const status = feedMeta?.data_status;
+                const cfg =
+                  !feedMeta                      ? { dotCls: "bg-amber-500",   txtCls: "text-amber-500",   label: "NO DATA" }
+                  : status === "no_data"         ? { dotCls: "bg-red-500 animate-pulse", txtCls: "text-red-500", label: "FETCH FAILED" }
+                  : status === "no_setups"      ? { dotCls: "bg-amber-500",   txtCls: "text-amber-500",   label: "NO SETUPS" }
+                  : status === "empty_universe" ? { dotCls: "bg-red-500",     txtCls: "text-red-500",     label: "NO UNIVERSE" }
+                                                : { dotCls: "bg-emerald-500 animate-pulse", txtCls: "text-emerald-500", label: "LIVE FEED" };
+                return (
+                  <div className={`flex items-center gap-1.5 justify-end text-xs font-semibold ${cfg.txtCls}`}>
+                    <span className={`h-2 w-2 rounded-full ${cfg.dotCls}`}/>
+                    {cfg.label}
+                  </div>
+                );
+              })()}
+              <div className={`text-[11px] mono mt-1 ${c.sub}`}>
+                {feedMeta ? feedMeta.generated_label : "—"}
+              </div>
+            </div>
+            <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer ${c.pill}`}>
+              <input type="file" accept=".json" onChange={onUpload} className="hidden"/>
+              <Icon.ArrowUR size={15}/>
+              <span className="hidden sm:inline">Load</span>
+            </label>
+            <button onClick={refresh} className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold ${c.pill}`}>
+              <Icon.Refresh size={15} className={spin ? "animate-spin" : ""}/>
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+            <button onClick={() => setDark(d => !d)} className={`h-9 w-9 grid place-items-center rounded-lg ${c.pill}`}>
+              {dark ? <Icon.Sun size={16}/> : <Icon.Moon size={16}/>}
+            </button>
+          </div>
+        </header>
+
+        {/* WARNING BANNER (shows only when scan health is degraded) */}
+        {feedMeta && feedMeta.data_status && feedMeta.data_status !== "ok" && (() => {
+          const status = feedMeta.data_status;
+          const stats = feedMeta.stats;
+          const cfg =
+            status === "no_data" ? {
+              bg: "bg-red-500/10 border-red-500/40",
+              dot: "bg-red-500",
+              title: "Scanner couldn't fetch market data",
+              body: stats
+                ? `Tried ${stats.attempted} fetches, only ${stats.fetched_ok} succeeded. Almost certainly the Dhan access token expired — regenerate it in Dhan, then update the DHAN_ACCESS_TOKEN secret in your GitHub repo Settings → Secrets and variables → Actions. The next scheduled scan will pick up the fix.`
+                : "Almost certainly the Dhan access token expired. Refresh it in your GitHub repo's Secrets settings."
+            }
+            : status === "no_setups" ? {
+              bg: "bg-amber-500/10 border-amber-500/40",
+              dot: "bg-amber-500",
+              title: "Scan succeeded but found 0 setups",
+              body: stats
+                ? `Engine fetched ${stats.fetched_ok}/${stats.attempted} stocks successfully but none currently qualify at ${feedMeta.deviation}% deviation. This is unusual — could be a quiet day, or the ZigZag threshold filtered everything.`
+                : "Engine ran without errors but no qualifying setups found."
+            }
+            : status === "empty_universe" ? {
+              bg: "bg-red-500/10 border-red-500/40",
+              dot: "bg-red-500",
+              title: "Empty stock universe",
+              body: "The engine couldn't load any symbols to scan. Check that NSE's Nifty 500 CSV is reachable from GitHub Actions."
+            }
+            : null;
+          if (!cfg) return null;
+          return (
+            <div className={`rounded-xl border ${cfg.bg} px-4 py-3 mb-4 flex items-start gap-3`}>
+              <span className={`h-2.5 w-2.5 rounded-full mt-1.5 ${cfg.dot} animate-pulse`}/>
+              <div className="flex-1">
+                <div className={`text-sm font-semibold ${c.head}`}>{cfg.title}</div>
+                <div className={`text-xs mt-1 leading-relaxed ${c.text}`}>{cfg.body}</div>
+                {stats && stats.sample_errors && stats.sample_errors.length > 0 && (
+                  <details className="mt-2">
+                    <summary className={`text-[11px] cursor-pointer ${c.sub}`}>Sample errors</summary>
+                    <div className={`mt-1 text-[11px] mono ${c.sub}`}>
+                      {stats.sample_errors.map((e, i) => <div key={i}>• {e}</div>)}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* TABS */}
+        <div className={`flex gap-1 border-b ${c.rowB} mb-4`}>
+          {[
+            ["scanner", "Scanner", Icon.Grid, scannerRows.length],
+            ["holding", "Holding", Icon.Activity, activeCounts.total],
+            ["perf",    "Performance", Icon.Trophy, null],
+            ["glossary", "Glossary", Icon.Help, null],
+          ].map(([k, label, Ic, badge]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab === k ? "" : "border-transparent " + c.sub}`}
+              style={tab === k ? { borderColor: MINT, color: dark ? "#fff" : "#111" } : undefined}>
+              <Ic size={15}/> {label}
+              {badge != null && badge > 0 && (
+                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${c.chip} mono`}>{badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* SCANNER TAB */}
+        {tab === "scanner" && <>
+          {/* Filter row 1 — sector, timeframe, signal */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <select value={sectorFilter} onChange={e => setSectorFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}>
+              {sectors.map(s => <option key={s} value={s}>{s === "All" ? "All sectors" : s}</option>)}
+            </select>
+            <select value={tfFilter} onChange={e => setTfFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm font-semibold ${c.input}`}>
+              <option value="all">All TFs</option>
+              {TFS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={tradeFilter} onChange={e => setTradeFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}>
+              <option value="all">T1 + T2</option>
+              <option value="T1">Trade 1 only</option>
+              <option value="T2">Trade 2 only</option>
+            </select>
+          </div>
+
+          {/* Action cards: All / Watch / Enter / Volume Shocker */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
+            <button onClick={() => setSignalFilter("all")}
+              className={`text-left rounded-xl border px-4 py-3 transition ${c.panel}`}
+              style={signalFilter === "all" ? { boxShadow: `inset 0 0 0 1.5px ${MINT}` } : undefined}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>All Setups</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: dark ? "#fff" : "#111" }}>{counts.total}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>watching + ready to enter</div>
+            </button>
+            <button onClick={() => setSignalFilter(signalFilter === "Watch" ? "all" : "Watch")}
+              className={`text-left rounded-xl border px-4 py-3 transition ${c.panel}`}
+              style={signalFilter === "Watch" ? { boxShadow: `inset 0 0 0 1.5px ${MINT}` } : undefined}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Watch</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: "#f59e0b" }}>{counts.Watch}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>near or in entry zone</div>
+            </button>
+            <button onClick={() => setSignalFilter(signalFilter === "Enter" ? "all" : "Enter")}
+              className={`text-left rounded-xl border px-4 py-3 transition ${c.panel}`}
+              style={signalFilter === "Enter" ? { boxShadow: `inset 0 0 0 1.5px ${MINT}` } : undefined}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Enter</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: "#10b981" }}>{counts.Enter}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>just crossed trigger</div>
+            </button>
+            <button onClick={() => setSignalFilter(signalFilter === "VolShocker" ? "all" : "VolShocker")}
+              className={`text-left rounded-xl border px-4 py-3 transition ${c.panel}`}
+              style={signalFilter === "VolShocker" ? { boxShadow: `inset 0 0 0 1.5px ${MINT}` } : undefined}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>⚡ Volume Shocker</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: "#fb923c" }}>{counts.VolShocker}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>vol ≥ 2× average</div>
+            </button>
+          </div>
+
+          {/* Filter row 2 — search, toggles, drop%, export buttons */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[180px]">
+              <Icon.Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${c.sub}`}/>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search symbol…"
+                className={`w-full rounded-md border pl-8 pr-3 py-1.5 text-sm ${c.input} ${c.text} focus:outline-none`}/>
+            </div>
+            <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold ${c.pill} cursor-pointer`}>
+              <input type="checkbox" checked={showProv} onChange={e => setShowProv(e.target.checked)}/>
+              Show provisional (PROV)
+            </label>
+            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold ${c.pill}`}>
+              <span>Drop % ≥</span>
+              <input type="number" value={minDrop} onChange={e => setMinDrop(Number(e.target.value))} min="0" max="100" step="5"
+                className={`w-14 px-1 py-0.5 rounded border ${c.input} mono`}/>
+            </div>
+            <button onClick={() => copyToClipboard(tvWatchlist())}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white"
+              style={{ background: TEAL }}>
+              <Icon.Chart size={15}/> Copy for TradingView
+            </button>
+            <button onClick={() => downloadText(tvWatchlistSectioned(), `zigzag_watchlist_${tfFilter}.txt`)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white"
+              style={{ background: CHAR }}>
+              <Icon.Download size={15}/> TV TXT
+            </button>
+            <button onClick={downloadCsv}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold ${c.pill}`}>
+              <Icon.Download size={15}/> CSV
+            </button>
+          </div>
+
+          {/* TABLE */}
+          <ResultsTable
+            rows={scannerRows} c={c} dark={dark}
+            tab={tab} expanded={expanded} setExpanded={setExpanded}
+            selected={selected} toggleSelect={toggleSelect}
+            sortKey={sortKey} sortDir={sortDir} sortBy={sortBy} sortIcon={sortIcon}
+          />
+
+          <p className={`text-[11px] mt-2 ${c.sub}`}>
+            {selected.size > 0 ? `${selected.size} selected · ` : ""}
+            Setups refresh every 15 min during NSE hours. Click a row to expand · Click symbol to open TradingView.
+          </p>
+        </>}
+
+        {/* HOLDING TAB */}
+        {tab === "holding" && <>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <select value={sectorFilter} onChange={e => setSectorFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}>
+              {sectors.map(s => <option key={s} value={s}>{s === "All" ? "All sectors" : s}</option>)}
+            </select>
+            <select value={tfFilter} onChange={e => setTfFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm font-semibold ${c.input}`}>
+              <option value="all">All TFs</option>
+              {TFS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={tradeFilter} onChange={e => setTradeFilter(e.target.value)}
+              className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}>
+              <option value="all">Both T1 + T2</option>
+              <option value="T1">T1 only</option>
+              <option value="T2">T2 only</option>
+            </select>
+            <div className="relative flex-1 min-w-[180px]">
+              <Icon.Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${c.sub}`}/>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search symbol…"
+                className={`w-full rounded-md border pl-8 pr-3 py-1.5 text-sm ${c.input} ${c.text} focus:outline-none`}/>
+            </div>
+            <button onClick={() => copyToClipboard(tvWatchlist())}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white"
+              style={{ background: TEAL }}>
+              <Icon.Chart size={15}/> Copy for TradingView
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
+            <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>All Holdings</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: dark ? "#fff" : "#111" }}>{activeCounts.total}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>trades currently open</div>
+            </div>
+            <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>T1 Holdings</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: "#7c3aed" }}>{activeCounts.t1}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>0.382 → 0.618-0.68 zone</div>
+            </div>
+            <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+              <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>T2 Holdings</div>
+              <div className="text-2xl font-extrabold mono" style={{ color: "#d946ef" }}>{activeCounts.t2}</div>
+              <div className={`text-[10px] mt-0.5 ${c.sub}`}>0.68 → 1.0-1.05 zone</div>
+            </div>
+          </div>
+
+          <ResultsTable
+            rows={activeRows} c={c} dark={dark}
+            tab={tab} expanded={expanded} setExpanded={setExpanded}
+            selected={selected} toggleSelect={toggleSelect}
+            sortKey={sortKey} sortDir={sortDir} sortBy={sortBy} sortIcon={sortIcon}
+            showSlWarning={true}
+            holdingMode={true}
+          />
+
+          <p className={`text-[11px] mt-2 ${c.sub}`}>
+            Holdings = trades where the engine fired entry but TP not yet hit.
+            <span className="inline-flex items-center gap-1 ml-2 text-amber-500">
+              <Icon.Alert size={11}/> Amber row = within 3% of stop loss
+            </span>
+          </p>
+        </>}
+
+        {/* PERFORMANCE TAB */}
+        {tab === "perf" && (
+          <PerformanceTab perfData={perfData} c={c} dark={dark}/>
+        )}
+
+        {tab === "glossary" && (
+          <GlossaryTab c={c} dark={dark}/>
+        )}
+
+        {/* FOOTER */}
+        <footer className={`mt-8 pt-4 border-t ${c.rowB}`}>
+          <p className={`text-[10.5px] leading-relaxed ${c.sub}`}>
+            <span className={`font-semibold ${c.text}`}>Disclaimer.</span>{" "}
+            This screener is an educational and informational tool only. Its operator is{" "}
+            <span className="font-semibold">not a SEBI Registered Investment Adviser</span>, and nothing
+            displayed here is investment advice, research, or a recommendation to buy, sell, or hold any
+            security. All outputs are automatically generated technical signals that may be inaccurate,
+            delayed, or incomplete, and are not a guarantee of any result. Trading and investing in
+            securities carry substantial risk of loss; past performance does not indicate future results.
+            You are solely responsible for your own decisions and should do your own due diligence and
+            consult a qualified, registered financial adviser before acting. The operator accepts no
+            liability for any loss or damage arising from use of, or reliance on, this tool.
+          </p>
+        </footer>
+      </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-black text-sm font-semibold shadow-lg"
+          style={{ background: MINT }}>
+          <Icon.Check size={15}/> {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// GLOSSARY TAB COMPONENT
+// ============================================================================
+function GlossaryTab({ c, dark }) {
+  const section = (title, items) => (
+    <div className={`rounded-xl border ${c.panel}`}>
+      <div className={`px-4 py-3 border-b ${c.rowB}`}>
+        <div className={`text-sm font-semibold ${c.head}`}>{title}</div>
+      </div>
+      <div className="p-4 space-y-3">
+        {items.map(([term, defn], i) => (
+          <div key={i}>
+            <div className={`text-sm font-semibold ${c.head} mb-1`}>{term}</div>
+            <div className={`text-xs leading-relaxed ${c.text}`}>{defn}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className={`rounded-xl border p-4 ${c.panel}`}>
+        <div className={`text-base font-semibold ${c.head} mb-1`}>Quick reference</div>
+        <div className={`text-xs ${c.sub}`}>
+          Definitions of every term, signal, and column shown in the dashboard.
+          The strategy: identify an A→B down-swing using ZigZag, then trade two Fibonacci
+          retracement legs (T1 and T2) as price rallies back toward A.
+        </div>
+      </div>
+
+      {section("Signal Actions (the 3 states)", [
+        ["Watch", "Price is approaching or sitting inside the entry zone but hasn't crossed the trigger yet. Action: monitor the chart, prepare entry order, but don't take the trade yet."],
+        ["Enter", "Price just crossed the trigger level (0.382 for T1, 0.68 for T2) with EMA + Volume confirmation. Action: this is the moment to take the trade."],
+        ["Holding", "You've taken the trade (signal fired more than 1 trading bar ago) and the target hasn't hit yet. Action: monitor for TP / SL exit."],
+      ])}
+
+      {section("The Two Trades", [
+        ["Trade 1 (T1)", "First leg of the strategy. Entry at 0.382 retracement of A→B swing. Target: 0.618-0.68 zone. Stop loss: close below 0.236. Risk:reward typically 2:1 or better."],
+        ["Trade 2 (T2)", "Second leg, sequential after T1 hits its target. Entry at 0.68 (or via gap-jump). Target: 1.0-1.05 retracement (back to A). Stop loss: close below 0.618."],
+        ["The dual nature", "One A→B swing gives you TWO trades. Trade 1 captures the first leg; if successful, Trade 2 takes you to the full Fibonacci 1.0 target."],
+      ])}
+
+      {section("Swing & Fibonacci Levels", [
+        ["A (swing high)", "The peak of the downswing — start of the move. Identified by ZigZag with 35% deviation."],
+        ["B (swing low)", "The bottom of the downswing — where the bounce begins. Can be 'confirmed' (35% rally has happened) or 'tentative' (still forming). The engine uses tentative pivots so you see setups earlier."],
+        ["0.236 level", "T1 Stop Loss line. If close drops below this, T1 trade is invalidated."],
+        ["0.32 → 0.382 zone", "T1 Entry Zone. Price retraces into this band → set up for the bounce trade."],
+        ["0.618 → 0.68 zone", "T1 Take Profit / T2 Entry Zone. Exit T1 here, enter T2 here."],
+        ["1.0 → 1.05 zone", "T2 Take Profit. Full Fibonacci retracement back to A."],
+      ])}
+
+      {section("Risk & Reward Metrics", [
+        ["R:R (Risk:Reward Ratio)", "Shown in Scanner tab. Ratio between potential reward and potential risk at trade setup. R:R = (TP - Entry) / (Entry - SL). Higher is better — rule of thumb: take trades with R:R ≥ 1.5."],
+        ["R Multiple (R)", "Shown in Holding tab. Your current move expressed in units of your initial risk. R = (LTP - Entry) / (Entry - SL). +1R = you've gained your initial risk; -1R = you've lost it (SL hit). Normalizes trade health across stocks of different prices."],
+        ["Total R", "Shown in Performance tab. Sum of R multiples across all completed historical trades. If you'd risked ₹1000 per trade, Total R = +50R means net P&L of ₹50,000."],
+        ["Move %", "Holding tab. Simple percentage change from your trigger entry price to current LTP. Quick read of how far the trade has moved."],
+        ["% to TP", "Holding tab. Progress toward Take Profit, as a percentage. 0% = just entered, 100% = at TP. Negative = in drawdown (below entry)."],
+      ])}
+
+      {section("Filters & Confirmation", [
+        ["EMA filter (green dot)", "Close price > both EMA 9 and EMA 21. Confirms uptrend bias. Required for trigger to fire."],
+        ["Volume filter (orange dot)", "Current volume > 1.2× the 20-bar SMA. Confirms participation. Required for trigger to fire."],
+        ["Volume Shocker", "Bonus filter: stocks with volume ≥ 2× average. These have unusually heavy participation — often signaling stronger moves."],
+        ["ZigZag 35% Deviation", "The algorithm used to identify A and B. A pivot 'confirms' when price reverses 35% from it. The engine also uses tentative (unconfirmed) pivots to surface setups earlier."],
+      ])}
+
+      {section("Badges & Warnings", [
+        ["PROV badge (orange)", "Provisional: signal fired on today's intraday bar and may revert before daily close. Drops automatically after 3:30 PM IST on weekdays (when market closes and today's price action is locked in)."],
+        ["NEAR SL warning (amber row)", "In Holding tab. LTP is within 3% of the stop loss. Trade is at risk — consider being ready to exit."],
+        ["FETCH FAILED (red)", "Scanner couldn't fetch market data from Dhan. Almost always means the Dhan access token expired — refresh it in GitHub repo Settings → Secrets → DHAN_ACCESS_TOKEN."],
+      ])}
+
+      {section("Timeframes & Timing", [
+        ["1D (Daily)", "Daily bar timeframe. Signals based on daily closes. Most setups will be here."],
+        ["1W (Weekly)", "Weekly bar timeframe. Aggregates to Friday close. Bigger, slower-moving setups."],
+        ["Triggered (Since)", "How long ago the entry trigger fired. 'Just now' = within minutes; '2d ago' = two days. Useful for assessing signal freshness."],
+        ["Days Held", "Holding tab. Number of calendar days since trade entry. Helps spot stagnant trades that may need review."],
+        ["Recency cutoff", "After 1 trading bar (1 day on Daily, 1 week on Weekly), a 'Triggered' signal becomes 'Active' (Holding). This makes sense: today = take it, tomorrow = manage it."],
+      ])}
+
+      {section("Backtest & Performance", [
+        ["Window", "Performance tab covers the last 365 days (12 months) of completed trades across the Nifty 500 universe."],
+        ["Win rate", "% of completed trades that hit their take-profit (vs hitting stop loss)."],
+        ["Avg R", "Average R multiple across all trades. Positive = strategy works on average. > +0.5R is generally good."],
+        ["Distribution histogram", "Shows the shape of trade outcomes. A healthy strategy has more bars in positive R buckets than the -1R loss bucket."],
+        ["Monthly trend", "Bar chart of Total R per month. Helps spot whether wins are consistent or clustered in specific market regimes."],
+      ])}
+
+      <div className={`text-[11px] text-center ${c.sub}`}>
+        Click the Performance tab to see live backtest stats. Click Scanner / Holding for current setups.
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PERFORMANCE TAB COMPONENT
+// ============================================================================
+function PerformanceTab({ perfData, c, dark }) {
+  if (!perfData) {
+    return (
+      <div className={`rounded-xl border p-6 ${c.panel}`}>
+        <div className={`text-sm ${c.sub}`}>
+          Performance data isn't available yet. The next scheduled scan will compute it.
+        </div>
+      </div>
+    );
+  }
+  const s = perfData.summary || {};
+  const monthly = perfData.monthly || [];
+  const breakdown = perfData.breakdown || [];
+  const top = perfData.top_performers || [];
+  const worst = perfData.worst_performers || [];
+  const dist = perfData.distribution || { buckets: [], counts: [] };
+
+  // Color helper for R values
+  const rColor = (r) => r > 0 ? "text-emerald-500" : r < 0 ? "text-red-500" : c.sub;
+
+  // Empty state
+  if (s.total_trades === 0) {
+    return (
+      <div className={`rounded-xl border p-6 ${c.panel}`}>
+        <div className={`text-sm font-semibold ${c.head} mb-2`}>No completed trades yet</div>
+        <p className={`text-xs leading-relaxed ${c.sub}`}>
+          The backtest didn't find any T1/T2 trades that completed (hit TP or SL) within
+          the {perfData.window_days}-day window across the Nifty 500 universe. This could mean:
+          most stocks are still in early-stage setups (Watch / Enter), or the volume/EMA
+          filters were strict for the recent period. As more trades resolve, this tab will
+          populate.
+        </p>
+      </div>
+    );
+  }
+
+  // Monthly bars: figure out scale
+  const monthlyMaxAbs = monthly.reduce((m, x) => Math.max(m, Math.abs(x.total_r || 0)), 1);
+  // Distribution bars: scale
+  const distMax = dist.counts.reduce((m, x) => Math.max(m, x), 1);
+
+  return (
+    <div className="space-y-5">
+      {/* Section 1: Headline cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+          <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Completed Trades</div>
+          <div className="text-2xl font-extrabold mono" style={{ color: dark ? "#fff" : "#111" }}>{s.total_trades}</div>
+          <div className={`text-[10px] mt-0.5 ${c.sub}`}>last {perfData.window_days} days</div>
+        </div>
+        <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+          <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Win Rate</div>
+          <div className="text-2xl font-extrabold mono text-emerald-500">
+            {(s.win_rate * 100).toFixed(1)}%
+          </div>
+          <div className={`text-[10px] mt-0.5 ${c.sub}`}>{s.wins} wins · {s.losses} losses</div>
+        </div>
+        <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+          <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Avg R per Trade</div>
+          <div className={`text-2xl font-extrabold mono ${rColor(s.avg_r)}`}>
+            {s.avg_r > 0 ? "+" : ""}{s.avg_r.toFixed(2)}R
+          </div>
+          <div className={`text-[10px] mt-0.5 ${c.sub}`}>1R = your initial risk</div>
+        </div>
+        <div className={`rounded-xl border px-4 py-3 ${c.panel}`}>
+          <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>Total R</div>
+          <div className={`text-2xl font-extrabold mono ${rColor(s.total_r)}`}>
+            {s.total_r > 0 ? "+" : ""}{s.total_r.toFixed(1)}R
+          </div>
+          <div className={`text-[10px] mt-0.5 ${c.sub}`}>if every trade taken</div>
+        </div>
+      </div>
+
+      {/* Section 2: Breakdown by trade type and timeframe */}
+      <div className={`rounded-xl border ${c.panel}`}>
+        <div className={`px-4 py-3 border-b ${c.rowB}`}>
+          <div className={`text-sm font-semibold ${c.head}`}>Breakdown by Trade Type</div>
+          <div className={`text-[11px] mt-0.5 ${c.sub}`}>Are T1 better than T2? Daily vs Weekly?</div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className={`${c.solid}`}>
+              <tr className={`text-[11px] uppercase tracking-wider ${c.sub} border-b ${c.rowB}`}>
+                <th className="px-4 py-2 text-left">Type</th>
+                <th className="px-4 py-2 text-right">Trades</th>
+                <th className="px-4 py-2 text-right">Wins</th>
+                <th className="px-4 py-2 text-right">Win %</th>
+                <th className="px-4 py-2 text-right">Avg R</th>
+                <th className="px-4 py-2 text-right">Total R</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breakdown.map((row, i) => (
+                <tr key={i} className={`border-b ${c.rowB}`}>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ring-1 ${TRADE_STYLES[row.trade_type]}`}>
+                      {row.trade_type}
+                    </span>
+                    <span className={`ml-2 mono text-xs ${c.chip} px-1.5 py-0.5 rounded`}>{row.tf}</span>
+                  </td>
+                  <td className={`px-4 py-2 text-right mono ${c.text}`}>{row.trades}</td>
+                  <td className={`px-4 py-2 text-right mono ${c.text}`}>{row.wins}</td>
+                  <td className={`px-4 py-2 text-right mono ${c.text}`}>{(row.win_rate * 100).toFixed(1)}%</td>
+                  <td className={`px-4 py-2 text-right mono ${rColor(row.avg_r)}`}>
+                    {row.avg_r > 0 ? "+" : ""}{row.avg_r.toFixed(2)}R
+                  </td>
+                  <td className={`px-4 py-2 text-right mono ${rColor(row.total_r)}`}>
+                    {row.total_r > 0 ? "+" : ""}{row.total_r.toFixed(1)}R
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Section 3: Monthly trend */}
+      <div className={`rounded-xl border ${c.panel}`}>
+        <div className={`px-4 py-3 border-b ${c.rowB}`}>
+          <div className={`text-sm font-semibold ${c.head}`}>Monthly Performance</div>
+          <div className={`text-[11px] mt-0.5 ${c.sub}`}>Consistent or clustered? Watch for drawdown months.</div>
+        </div>
+        <div className="p-4 space-y-1.5">
+          {monthly.map((m, i) => {
+            const pct = Math.abs(m.total_r) / monthlyMaxAbs * 100;
+            const isWin = m.total_r >= 0;
+            return (
+              <div key={i} className="flex items-center gap-3">
+                <div className={`w-16 text-xs mono ${c.sub} flex-shrink-0`}>{m.month}</div>
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 h-5 rounded relative overflow-hidden" style={{ background: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
+                    <div className="absolute inset-y-0 left-0 rounded transition-all"
+                         style={{ width: pct + "%", background: isWin ? "#10b981" : "#ef4444", opacity: 0.85 }}/>
+                  </div>
+                  <div className={`w-20 text-right text-xs mono font-semibold flex-shrink-0 ${isWin ? "text-emerald-500" : "text-red-500"}`}>
+                    {isWin ? "+" : ""}{m.total_r.toFixed(1)}R
+                  </div>
+                  <div className={`w-16 text-right text-[10px] ${c.sub} flex-shrink-0`}>
+                    {m.trades} trades
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Section 4: Best/Worst Performers */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={`rounded-xl border ${c.panel}`}>
+          <div className={`px-4 py-3 border-b ${c.rowB}`}>
+            <div className={`text-sm font-semibold ${c.head}`}>Top Performers</div>
+            <div className={`text-[11px] mt-0.5 ${c.sub}`}>Stocks with the highest total R</div>
+          </div>
+          <div className="p-3 space-y-1">
+            {top.length === 0 ? (
+              <div className={`text-xs ${c.sub} p-2`}>No data yet</div>
+            ) : (
+              top.map((s, i) => (
+                <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-emerald-500/5">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] mono ${c.sub} w-5`}>{i + 1}.</span>
+                    <a href={tradingViewUrl(s.sym)} target="_blank" rel="noopener noreferrer"
+                       className={`font-semibold text-sm ${c.head} hover:underline`}>{s.sym}</a>
+                    <span className={`mono text-[10px] px-1 py-0.5 rounded ${c.chip}`}>{s.tf}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] ${c.sub}`}>{s.trades} trades</span>
+                    <span className={`mono text-sm font-semibold ${rColor(s.total_r)}`}>
+                      {s.total_r > 0 ? "+" : ""}{s.total_r.toFixed(1)}R
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        <div className={`rounded-xl border ${c.panel}`}>
+          <div className={`px-4 py-3 border-b ${c.rowB}`}>
+            <div className={`text-sm font-semibold ${c.head}`}>Worst Performers</div>
+            <div className={`text-[11px] mt-0.5 ${c.sub}`}>Where the strategy underperformed</div>
+          </div>
+          <div className="p-3 space-y-1">
+            {worst.length === 0 ? (
+              <div className={`text-xs ${c.sub} p-2`}>No data yet</div>
+            ) : (
+              worst.map((s, i) => (
+                <div key={i} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-red-500/5">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] mono ${c.sub} w-5`}>{i + 1}.</span>
+                    <a href={tradingViewUrl(s.sym)} target="_blank" rel="noopener noreferrer"
+                       className={`font-semibold text-sm ${c.head} hover:underline`}>{s.sym}</a>
+                    <span className={`mono text-[10px] px-1 py-0.5 rounded ${c.chip}`}>{s.tf}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] ${c.sub}`}>{s.trades} trades</span>
+                    <span className={`mono text-sm font-semibold ${rColor(s.total_r)}`}>
+                      {s.total_r > 0 ? "+" : ""}{s.total_r.toFixed(1)}R
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 5: Distribution histogram */}
+      <div className={`rounded-xl border ${c.panel}`}>
+        <div className={`px-4 py-3 border-b ${c.rowB}`}>
+          <div className={`text-sm font-semibold ${c.head}`}>R-Multiple Distribution</div>
+          <div className={`text-[11px] mt-0.5 ${c.sub}`}>Profile of the strategy: many small wins + a few losses, or fewer big runners?</div>
+        </div>
+        <div className="p-4 space-y-1.5">
+          {dist.buckets.map((b, i) => {
+            const cnt = dist.counts[i] || 0;
+            const pct = cnt / distMax * 100;
+            const negative = b.includes("-") || b.startsWith("≤");
+            return (
+              <div key={i} className="flex items-center gap-3">
+                <div className={`w-20 text-xs mono ${c.sub} flex-shrink-0`}>{b}</div>
+                <div className="flex-1 h-5 rounded relative overflow-hidden" style={{ background: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
+                  <div className="absolute inset-y-0 left-0 rounded transition-all"
+                       style={{ width: pct + "%", background: negative ? "#ef4444" : "#10b981", opacity: 0.85 }}/>
+                </div>
+                <div className={`w-16 text-right text-xs mono font-semibold flex-shrink-0 ${c.text}`}>
+                  {cnt} trades
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={`text-[11px] ${c.sub} text-center`}>
+        Backtest assumes 1 unit risk per trade. Slippage and execution not modeled.
+        Window: last {perfData.window_days} days. Last computed: {perfData.generated_label || "—"}.
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// RESULTS TABLE COMPONENT (shared between Scanner and Active tabs)
+// ============================================================================
+function ResultsTable({ rows, c, dark, tab, expanded, setExpanded, selected, toggleSelect,
+                       sortKey, sortDir, sortBy, sortIcon, showSlWarning = false, holdingMode = false }) {
+  const toggleExpand = (id) => setExpanded(s => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+
+  const slAtRisk = (r) => {
+    if (!showSlWarning) return false;
+    if (!r.ltp) return false;
+    const sl = r._sl;
+    if (!sl) return false;
+    const dist = (r.ltp - sl) / r.ltp;
+    return dist > 0 && dist < SL_PROX_PCT;
+  };
+
+  return (
+    <div className={`rounded-xl border overflow-hidden ${c.panel}`}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className={`${c.solid} border-b ${c.rowB}`}>
+            <tr className={`text-[11px] uppercase tracking-wider ${c.sub}`}>
+              <th className="px-2 py-2 w-8"></th>
+              <th className="px-2 py-2 w-9"></th>
+              <th onClick={() => sortBy("sym")} className={`px-3 py-2 text-left font-semibold ${c.sortable}`}>
+                Symbol{sortIcon("sym")}
+              </th>
+              <th onClick={() => sortBy("sector")} className={`px-3 py-2 text-left font-semibold hidden lg:table-cell ${c.sortable}`}>
+                Sector{sortIcon("sector")}
+              </th>
+              <th onClick={() => sortBy("tf")} className={`px-2 py-2 text-left font-semibold ${c.sortable}`}>
+                TF{sortIcon("tf")}
+              </th>
+              <th onClick={() => sortBy("action")} className={`px-3 py-2 text-left font-semibold ${c.sortable}`}>
+                Action{sortIcon("action")}
+              </th>
+              <th onClick={() => sortBy("active_trade")} className={`px-2 py-2 text-left font-semibold ${c.sortable}`}>
+                Trade{sortIcon("active_trade")}
+              </th>
+              {holdingMode ? (
+                <>
+                  <th onClick={() => sortBy("_move_pct")} className={`px-3 py-2 text-right font-semibold ${c.sortable}`}>
+                    Move %{sortIcon("_move_pct")}
+                  </th>
+                  <th onClick={() => sortBy("_r_mult")} className={`px-3 py-2 text-right font-semibold ${c.sortable}`}>
+                    R{sortIcon("_r_mult")}
+                  </th>
+                  <th onClick={() => sortBy("_progress_pct")} className={`px-3 py-2 text-right font-semibold hidden md:table-cell ${c.sortable}`}>
+                    % to TP{sortIcon("_progress_pct")}
+                  </th>
+                  <th onClick={() => sortBy("_days_held")} className={`px-3 py-2 text-right font-semibold hidden md:table-cell ${c.sortable}`}>
+                    Days Held{sortIcon("_days_held")}
+                  </th>
+                  <th onClick={() => sortBy("ltp")} className={`px-3 py-2 text-right font-semibold hidden sm:table-cell ${c.sortable}`}>
+                    LTP{sortIcon("ltp")}
+                  </th>
+                </>
+              ) : (
+                <>
+                  <th onClick={() => sortBy("_entry")} className={`px-3 py-2 text-right font-semibold hidden md:table-cell ${c.sortable}`}>
+                    Trigger Entry{sortIcon("_entry")}
+                  </th>
+                  <th onClick={() => sortBy("ltp")} className={`px-3 py-2 text-right font-semibold ${c.sortable}`}>
+                    LTP{sortIcon("ltp")}
+                  </th>
+                  <th onClick={() => sortBy("_entry_dist_pct")} className={`px-3 py-2 text-right font-semibold ${c.sortable}`}>
+                    % from Entry{sortIcon("_entry_dist_pct")}
+                  </th>
+                  <th onClick={() => sortBy("rr")} className={`px-3 py-2 text-right font-semibold ${c.sortable}`}>
+                    R:R{sortIcon("rr")}
+                  </th>
+                  <th onClick={() => sortBy("vol_x")} className={`px-3 py-2 text-right font-semibold hidden md:table-cell ${c.sortable}`}>
+                    Vol{sortIcon("vol_x")}
+                  </th>
+                  <th className="px-2 py-2 text-center font-semibold">Filters</th>
+                  <th onClick={() => sortBy("confirmed_at")} className={`px-3 py-2 text-right font-semibold hidden md:table-cell ${c.sortable}`}>
+                    Triggered{sortIcon("confirmed_at")}
+                  </th>
+                </>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const atRisk = slAtRisk(r);
+              const isExpanded = expanded.has(r.id);
+              const isSelected = selected.has(r.id);
+              const action = r.action || deriveAction(r);
+              const trade = r.active_trade;
+              return (
+                <React.Fragment key={r.id}>
+                  <tr className={`row border-b ${c.rowB} ${c.rowH} ${atRisk ? "bg-amber-500/10" : ""}`}
+                      style={{ animationDelay: `${Math.min(i * 8, 250)}ms` }}>
+                    <td className="px-2 py-2 text-center">
+                      <button onClick={() => toggleExpand(r.id)} className={`${c.sub} hover:opacity-100 opacity-70`}>
+                        {isExpanded ? <Icon.ChevD size={14}/> : <Icon.ChevR size={14}/>}
+                      </button>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(r.id)}/>
+                    </td>
+                    <td className="px-3 py-2">
+                      <a href={tradingViewUrl(r.sym)} target="_blank" rel="noopener noreferrer"
+                         className={`font-semibold ${c.head} hover:underline inline-flex items-center gap-1`}>
+                        {r.sym}
+                        <Icon.External size={11} className={c.sub}/>
+                      </a>
+                    </td>
+                    <td className={`px-3 py-2 hidden lg:table-cell ${c.sub}`}>{r.sector}</td>
+                    <td className="px-2 py-2">
+                      <span className={`mono text-xs rounded px-1.5 py-0.5 ${c.chip}`}>{r.tf}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ring-1 ${ACTION_STYLES[action] || ""}`}>
+                        {action}
+                      </span>
+                      {r.provisional && (
+                        <span title="Provisional: signal fired on today's intraday bar — may revert before daily close. Auto-drops after 3:30 PM IST."
+                              className="ml-1 text-[9px] font-bold px-1 py-0.5 rounded bg-orange-500/20 text-orange-500 ring-1 ring-orange-500/30 cursor-help">PROV</span>
+                      )}
+                      {atRisk && (
+                        <span className="ml-1 text-[9px] font-bold px-1 py-0.5 rounded bg-amber-500/20 text-amber-600 ring-1 ring-amber-500/40">
+                          NEAR SL
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      {trade && (
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ring-1 ${TRADE_STYLES[trade] || ""}`}>
+                          {trade}
+                        </span>
+                      )}
+                    </td>
+                    {holdingMode ? (
+                      <>
+                        <td className={`px-3 py-2 text-right mono font-semibold ${r._move_pct != null && r._move_pct >= 0 ? "text-emerald-500" : r._move_pct != null ? "text-red-500" : c.sub}`}>
+                          {r._move_pct != null ? (r._move_pct >= 0 ? "+" : "") + r._move_pct.toFixed(1) + "%" : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono font-semibold ${r._r_mult != null && r._r_mult >= 0 ? "text-emerald-500" : r._r_mult != null ? "text-red-500" : c.sub}`}>
+                          {r._r_mult != null ? (r._r_mult >= 0 ? "+" : "") + r._r_mult.toFixed(2) + "R" : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono hidden md:table-cell ${r._progress_pct != null && r._progress_pct >= 0 ? c.text : "text-red-500"}`}>
+                          {r._progress_pct != null
+                            ? (r._progress_pct > 100
+                                ? "100%+"
+                                : (r._progress_pct >= 0 ? "" : "") + r._progress_pct.toFixed(0) + "%")
+                            : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono text-xs hidden md:table-cell ${c.sub}`}>
+                          {r._days_held != null ? r._days_held + "d" : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono hidden sm:table-cell ${c.text}`}>
+                          {fmt(r.ltp)}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={`px-3 py-2 text-right mono hidden md:table-cell ${c.text}`}>
+                          {fmt(r._entry)}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono font-semibold ${c.text}`}>
+                          {fmt(r.ltp)}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono font-semibold ${r._entry_dist_pct != null && r._entry_dist_pct >= 0 ? "text-emerald-500" : r._entry_dist_pct != null ? "text-amber-500" : c.sub}`}>
+                          {r._entry_dist_pct != null ? (r._entry_dist_pct >= 0 ? "+" : "") + r._entry_dist_pct.toFixed(1) + "%" : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right mono font-semibold ${r.rr >= 2 ? "text-emerald-500" : c.text}`}>
+                          {r.rr != null ? r.rr.toFixed(1) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right hidden md:table-cell">
+                          <span className={`inline-flex items-center gap-1 mono font-semibold ${r.vol_ok ? "text-orange-500" : c.sub}`}>
+                            {r.vol_ok && <Icon.Zap size={11}/>}
+                            {r.vol_x ? r.vol_x.toFixed(1) + "×" : "—"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span title={r.ema_ok ? "Close above both EMAs" : "Close NOT above EMAs"}
+                                  className={`h-2 w-2 rounded-full ${r.ema_ok ? "bg-emerald-500" : "bg-zinc-500/50"}`}/>
+                            <span title={r.vol_ok ? "Volume > 1.2× avg" : "Volume below threshold"}
+                                  className={`h-2 w-2 rounded-full ${r.vol_ok ? "bg-orange-500" : "bg-zinc-500/50"}`}/>
+                          </div>
+                        </td>
+                        <td className={`px-3 py-2 text-right mono text-xs hidden md:table-cell ${c.sub}`}>
+                          <span className="inline-flex items-center gap-1">
+                            <Icon.Clock size={11}/>
+                            {relativeTime(r.confirmed_at)}
+                          </span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {isExpanded && (
+                    <tr className={`${c.solid} border-b ${c.rowB}`}>
+                      <td colSpan={13} className="px-6 py-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                          <div>
+                            <div className={`${c.sub} text-[10px] uppercase tracking-wider mb-1`}>Swing</div>
+                            <div className="mono"><span className="text-red-500">A:</span> {fmt(r.A)}</div>
+                            <div className="mono"><span className="text-emerald-500">B:</span> {fmt(r.B)}</div>
+                            <div className="mono">{fmtPct(r.drop_pct)} drop</div>
+                          </div>
+                          <div>
+                            <div className={`${c.sub} text-[10px] uppercase tracking-wider mb-1`}>Trade 1 zones</div>
+                            <div className="mono"><span className={c.sub}>Entry:</span> {fmt(r.t1_entry_lo)}–{fmt(r.t1_entry_hi)}</div>
+                            <div className="mono"><span className={c.sub}>TP:</span> {fmt(r.t1_tp_lo)}–{fmt(r.t1_tp_hi)}</div>
+                            <div className="mono text-red-500"><span className={c.sub}>SL:</span> {fmt(r.t1_sl)}</div>
+                          </div>
+                          <div>
+                            <div className={`${c.sub} text-[10px] uppercase tracking-wider mb-1`}>Trade 2 zones</div>
+                            <div className="mono"><span className={c.sub}>Entry:</span> {fmt(r.t2_entry_lo)}–{fmt(r.t2_entry_hi)}</div>
+                            <div className="mono"><span className={c.sub}>TP:</span> {fmt(r.t2_tp_lo)}–{fmt(r.t2_tp_hi)}</div>
+                            <div className="mono text-red-500"><span className={c.sub}>SL:</span> {fmt(r.t2_sl)}</div>
+                          </div>
+                          <div>
+                            <div className={`${c.sub} text-[10px] uppercase tracking-wider mb-1`}>Filters & Macro</div>
+                            <div className="mono">EMA: {r.ema_ok ? <span className="text-emerald-500">✓ above</span> : <span className={c.sub}>✗ below</span>}</div>
+                            <div className="mono">Vol: {r.vol_ok ? <span className="text-orange-500">✓ heavy ({r.vol_x ? r.vol_x.toFixed(1) + "×" : "—"})</span> : <span className={c.sub}>✗ normal</span>}</div>
+                            <div className="mono"><span className={c.sub}>Confirmed:</span> {relativeTime(r.confirmed_at)}</div>
+                            {r.macro_a && r.macro_b && (
+                              <div className={`mono ${c.sub}`}>Macro: {fmt(r.macro_a)} → {fmt(r.macro_b)}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={13} className={`px-3 py-10 text-center ${c.sub}`}>
+                No setups match these filters.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script></body></html>

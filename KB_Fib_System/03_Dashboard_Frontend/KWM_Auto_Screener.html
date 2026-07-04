@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>KWM Auto Screener</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>body{margin:0}</style></head>
+<body><div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const {useState, useMemo, useEffect} = React;
+const SVG = ({size=16, className="", children, style}) =>
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>{children}</svg>;
+const Search=(p)=> <SVG {...p}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></SVG>;
+const Zap=(p)=> <SVG {...p}><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></SVG>;
+const TrendingUp=(p)=> <SVG {...p}><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h7v7"/></SVG>;
+const TrendingDown=(p)=> <SVG {...p}><path d="M3 7l6 6 4-4 7 7"/><path d="M14 16h7v-7"/></SVG>;
+const Download=(p)=> <SVG {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></SVG>;
+const Check=(p)=> <SVG {...p}><path d="M20 6 9 17l-5-5"/></SVG>;
+const CandlestickChart=(p)=> <SVG {...p}><path d="M9 5v3"/><path d="M9 16v3"/><rect x="7" y="8" width="4" height="8" rx="1"/><path d="M17 3v4"/><path d="M17 17v4"/><rect x="15" y="7" width="4" height="10" rx="1"/></SVG>;
+const Sun=(p)=> <SVG {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></SVG>;
+const Moon=(p)=> <SVG {...p}><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></SVG>;
+const Clock=(p)=> <SVG {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></SVG>;
+const ArrowUpRight=(p)=> <SVG {...p}><path d="M7 17 17 7"/><path d="M7 7h10v10"/></SVG>;
+const LayoutGrid=(p)=> <SVG {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></SVG>;
+const CalendarDays=(p)=> <SVG {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></SVG>;
+const Trophy=(p)=> <SVG {...p}><path d="M6 9a6 6 0 0 0 12 0V4H6z"/><path d="M6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3M9 21h6M12 15v6"/></SVG>;
+const RefreshCw=(p)=> <SVG {...p}><path d="M21 12a9 9 0 1 1-3-6.7L21 7"/><path d="M21 3v4h-4"/></SVG>;
+
+
+
+// [symbol, sector, tier, fno]
+const META = [
+  ["RELIANCE","Energy","mega",1],["TCS","IT","mega",1],["INFY","IT","mega",1],["HDFCBANK","Bank","mega",1],
+  ["ICICIBANK","Bank","mega",1],["SBIN","Bank","mega",1],["BHARTIARTL","Telecom","mega",1],["ITC","FMCG","mega",1],
+  ["LT","Capital Goods","mega",1],["HINDUNILVR","FMCG","mega",1],["AXISBANK","Bank","large",1],["KOTAKBANK","Bank","large",1],
+  ["BAJFINANCE","Financial Services","large",1],["MARUTI","Auto","large",1],["SUNPHARMA","Pharma","large",1],["TATAMOTORS","Auto","large",1],
+  ["TATASTEEL","Metal","large",1],["TITAN","Consumer Durables","large",1],["ASIANPAINT","Consumer","large",1],["ULTRACEMCO","Cement","large",1],
+  ["NESTLEIND","FMCG","large",1],["WIPRO","IT","large",1],["HCLTECH","IT","large",1],["TECHM","IT","large",1],
+  ["JSWSTEEL","Metal","large",1],["POWERGRID","Power","large",1],["NTPC","Power","large",1],["ONGC","Energy","large",1],
+  ["COALINDIA","Energy","large",1],["ADANIENT","Energy","large",1],["ADANIPORTS","Infrastructure","large",1],["M&M","Auto","large",1],
+  ["GRASIM","Cement","mid",1],["DRREDDY","Pharma","mid",1],["CIPLA","Pharma","mid",1],["TVSMOTOR","Auto","mid",1],
+  ["DLF","Realty","mid",1],["TRENT","Retail","mid",1],["ZOMATO","Consumer","mid",1],["SRF","Chemicals","mid",1],
+  ["PIDILITIND","Chemicals","mid",0],["IRCTC","Services","mid",0],["EXIDEIND","Auto","small",0],["PIIND","Chemicals","small",0],
+];
+const META_BY_SYM = Object.fromEntries(META.map(m=>[m[0],m]));
+const DATA_URL = "https://raw.githubusercontent.com/krishbahri93/kwm-scan/main/results.json";
+const TFS = ["15m","1H","75m","4H","1D","1W"];
+const UNIVERSES = ["Nifty 500","Nifty 50","Nifty 200","Nifty Midcap 150","Nifty Smallcap 250","Nifty F&O"];
+const SIGNALS = ["Triggered","In Zone","Approaching"];
+
+function inUniverse(m,u){const tier=m[2],fno=m[3];
+  if(u==="Nifty 500")return true; if(u==="Nifty 50")return tier==="mega";
+  if(u==="Nifty 200")return tier==="mega"||tier==="large"; if(u==="Nifty Midcap 150")return tier==="mid";
+  if(u==="Nifty Smallcap 250")return tier==="small"; if(u==="Nifty F&O")return fno===1; return true;}
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function buildRows(seed){
+  const rand=mulberry32(seed); const rows=[];
+  META.forEach(m=>{const [sym,sector]=m;
+    const nTf=1+Math.floor(rand()*3);
+    const tfPool=[...TFS].sort(()=>rand()-0.5).slice(0,nTf);
+    const base=180+Math.floor(rand()*3300);
+    tfPool.forEach(tf=>{
+      const sig=rand()<0.3?"Triggered":rand()<0.58?"In Zone":"Approaching";
+      const up=rand()>0.42; const span=base*(0.04+rand()*0.05); const volX=+(0.6+rand()*3.2).toFixed(1);
+      rows.push({id:`${sym}-${tf}`,sym,sector,m,tf,sig,up,ltp:+(base*(1+(rand()-0.5)*0.02)).toFixed(1),
+        zLow:+(base-span*0.5).toFixed(1),zHigh:+(base+span*0.5).toFixed(1),volX,spike:volX>=1.8,
+        confMin:2+Math.floor(rand()*230),sinceTrig:sig==="Triggered"?+(rand()*6.5).toFixed(2):null});
+    });
+  });
+  return rows;
+}
+function buildHistory(seed){const rand=mulberry32(seed);const out=[];
+  for(let i=29;i>=0;i--){const d=new Date(2026,4,28);d.setDate(d.getDate()-i);
+    const trig=6+Math.floor(rand()*22);const hit=Math.floor(trig*(0.4+rand()*0.4));
+    out.push({date:d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}),trig,zone:5+Math.floor(rand()*18),spikes:3+Math.floor(rand()*14),hit,pct:Math.round(hit/trig*100),avg:+(1+rand()*4).toFixed(1)});}
+  return out;}
+function buildTrades(seed){const rand=mulberry32(seed);const out=[];const pool=META.map(m=>m[0]);
+  for(let i=0;i<28;i++){const sym=pool[Math.floor(rand()*pool.length)];const tf=TFS[Math.floor(rand()*TFS.length)];
+    const ageDays=Math.floor(rand()*30);const d=new Date(2026,4,28);d.setDate(d.getDate()-ageDays);
+    const entry=+(150+rand()*2800).toFixed(1);const target=+(entry*(1.03+rand()*0.06)).toFixed(1);
+    const roll=rand();const status=roll<0.55?"Hit":roll<0.82?"Open":"Stopped";
+    const gain=status==="Hit"?+(((target-entry)/entry*100).toFixed(1)):status==="Open"?+(((rand()-0.3)*3).toFixed(1)):-+((1+rand()*2.5).toFixed(1));
+    out.push({id:i,sym,tf,ageDays,date:d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}),entry,target,status,gain});}
+  return out.sort((a,b)=>a.ageDays-b.ageDays);}
+
+const fmt=n=>n.toLocaleString("en-IN",{maximumFractionDigits:1});
+const ago=m=>m<60?`${m}m ago`:`${Math.floor(m/60)}h ${m%60}m ago`;
+
+function App(){
+  const [dark,setDark]=useState(false);
+  const [tab,setTab]=useState("scanner");
+  const [universe,setUniverse]=useState("Nifty 500");
+  const [sector,setSector]=useState("All");
+  const [tf,setTf]=useState("all");
+  const [sig,setSig]=useState("all");
+  const [spikeOnly,setSpikeOnly]=useState(false);
+  const [q,setQ]=useState("");
+  const [sel,setSel]=useState(()=>new Set());
+  const [toast,setToast]=useState("");
+  const [period,setPeriod]=useState("Daily");
+  const [scan,setScan]=useState(0);
+  const [updated,setUpdated]=useState(()=>new Date().toLocaleTimeString("en-IN",{hour12:false}));
+  const [spin,setSpin]=useState(false);
+  const [liveRows,setLiveRows]=useState(null);
+  const [feed,setFeed]=useState(null);
+  const ingest=(j)=>{const raw=(j&&j.rows)?j.rows:j;if(!Array.isArray(raw))return;setLiveRows(raw.map(r=>({...r,id:r.sym+"-"+r.tf,m:META_BY_SYM[r.sym]||[r.sym,r.sector||"-","mid",1]})));setFeed({updated:(j&&j.generated_at)||"loaded",count:raw.length});};
+  const loadFeed=()=>{fetch(DATA_URL+"?t="+Date.now()).then(r=>r.ok?r.json():Promise.reject()).then(ingest).catch(()=>{});};
+  const onUpload=(e)=>{const f=e.target.files&&e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{ingest(JSON.parse(rd.result));}catch(err){alert("Could not read that file as JSON results.");}};rd.readAsText(f);};
+  useEffect(()=>{loadFeed(); const _iv=setInterval(loadFeed, 90000); return ()=>clearInterval(_iv);},[]);
+
+  const allRows=useMemo(()=>buildRows(20260528+scan*101),[scan]);
+  const dataRows = liveRows||allRows;
+  const history=useMemo(()=>buildHistory(7777+scan*7),[scan]);
+  const trades=useMemo(()=>buildTrades(555+scan*13),[scan]);
+  const sectors=useMemo(()=>["All",...Array.from(new Set(META.map(m=>m[1]))).sort()],[]);
+
+  const refresh=()=>{setSpin(true);loadFeed();setScan(s=>s+1);setUpdated(new Date().toLocaleTimeString("en-IN",{hour12:false}));setSel(new Set());setTimeout(()=>setSpin(false),650);};
+
+  const c=dark?{
+    grad:"radial-gradient(1100px 620px at 82% -12%, #0e2226 0%, #0a0f10 46%, #08090a 100%)",
+    text:"text-zinc-200",head:"text-zinc-50",sub:"text-zinc-500",panel:"bg-white/[0.03] border-white/10",solid:"bg-white/[0.05]",
+    input:"bg-white/[0.04] border-white/10 placeholder-zinc-600",rowB:"border-white/5",rowH:"hover:bg-white/[0.04]",
+    pill:"bg-white/[0.04] text-zinc-400 hover:text-zinc-200 border border-white/10",chip:"bg-white/10 text-zinc-400",
+  }:{
+    grad:"radial-gradient(1100px 620px at 82% -12%, #e9f4f3 0%, #f6f7f6 46%, #eef1f0 100%)",
+    text:"text-zinc-700",head:"text-zinc-900",sub:"text-zinc-500",panel:"bg-white border-zinc-200",solid:"bg-zinc-50",
+    input:"bg-white border-zinc-300 placeholder-zinc-400",rowB:"border-zinc-100",rowH:"hover:bg-emerald-50/60",
+    pill:"bg-white text-zinc-500 hover:text-zinc-900 border border-zinc-300",chip:"bg-zinc-100 text-zinc-600",
+  };
+  const TEAL="#2a7c8f",MINT="#37c79b",CHAR="#3b4147";
+  const SIG={"Triggered":"bg-emerald-500/15 text-emerald-500 ring-emerald-500/30","In Zone":"bg-cyan-500/15 text-cyan-600 ring-cyan-500/30","Approaching":"bg-slate-500/15 text-slate-500 ring-slate-400/25"};
+
+  const rows=useMemo(()=>dataRows.filter(x=>inUniverse(x.m,universe)&&(sector==="All"||x.sector===sector)&&(tf==="all"||x.tf===tf)&&(sig==="all"||x.sig===sig)&&(!spikeOnly||x.spike)&&(q===""||x.sym.toLowerCase().includes(q.toLowerCase()))),[dataRows,universe,sector,tf,sig,spikeOnly,q]);
+
+  const counts=useMemo(()=>{const b=dataRows.filter(x=>inUniverse(x.m,universe)&&(sector==="All"||x.sector===sector)&&(tf==="all"||x.tf===tf)&&(q===""||x.sym.toLowerCase().includes(q.toLowerCase())));
+    return{total:b.length,trig:b.filter(r=>r.sig==="Triggered").length,zone:b.filter(r=>r.sig==="In Zone").length,spike:b.filter(r=>r.spike).length};},[dataRows,universe,sector,tf,q]);
+
+  const toggleRow=id=>setSel(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const allShown=rows.length>0&&rows.every(r=>sel.has(r.id));
+  const toggleAll=()=>setSel(s=>{const n=new Set(s);allShown?rows.forEach(r=>n.delete(r.id)):rows.forEach(r=>n.add(r.id));return n;});
+  const exportRows=()=>sel.size>0?rows.filter(r=>sel.has(r.id)):rows;
+  const flatString=()=>{const seen=new Set(),o=[];exportRows().forEach(r=>{if(!seen.has(r.sym)){seen.add(r.sym);o.push("NSE:"+r.sym);}});return o.join(",");};
+  const sectionString=()=>{if(tf!=="all")return flatString();const by={};exportRows().forEach(r=>{(by[r.tf]||=[]).push("NSE:"+r.sym);});return TFS.filter(t=>by[t]).map(t=>`###${t},`+[...new Set(by[t])].join(",")).join(",");};
+  const copyText=async t=>{try{await navigator.clipboard.writeText(t);}catch{const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(a);}setToast("Copied for TradingView");setTimeout(()=>setToast(""),1900);};
+  const downloadFile=(t,n)=>{try{const b=new Blob([t],{type:"text/plain"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=n;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);setToast("Watchlist .txt downloaded");}catch{copyText(t);}setTimeout(()=>setToast(""),1900);};
+
+  const Card=({label,val,col,active,onClick})=>(
+    <button onClick={onClick} className={`text-left rounded-xl border px-3.5 py-2.5 transition ${c.panel}`} style={active?{boxShadow:`inset 0 0 0 1.5px ${MINT}`}:undefined}>
+      <div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>{label}</div>
+      <div className="text-2xl font-extrabold mono" style={{color:col}}>{val}</div>
+    </button>);
+
+  const win=period==="Daily"?2:period==="Weekly"?7:30;
+  const ptrades=trades.filter(t=>t.ageDays<win);
+  const phit=ptrades.filter(t=>t.status==="Hit");
+  const pcards={trig:ptrades.length,hit:phit.length,rate:ptrades.length?Math.round(phit.length/ptrades.length*100):0,avg:phit.length?+(phit.reduce((a,b)=>a+b.gain,0)/phit.length).toFixed(1):0};
+  const TST={"Hit":"bg-emerald-500/15 text-emerald-500 ring-emerald-500/30","Open":"bg-cyan-500/15 text-cyan-600 ring-cyan-500/30","Stopped":"bg-red-500/15 text-red-500 ring-red-500/30"};
+
+  return (
+    <div className={`min-h-screen w-full ${c.text}`} style={{background:c.grad,fontFamily:"'Archivo', ui-sans-serif, system-ui, sans-serif"}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap');
+        .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+        @keyframes fin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+        .row{animation:fin .3s ease both} select{color-scheme:${dark?"dark":"light"}}`}</style>
+
+      <div className="h-[3px] w-full" style={{background:`linear-gradient(90deg,${TEAL},${MINT} 55%,transparent)`}}/>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16">
+        <header className="flex items-center justify-between py-4 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <svg width="34" height="42" viewBox="0 0 60 76" aria-label="KWM logo"><polygon points="7,37 29,37 29,61" fill="#5cc6a0"/><polygon points="31,15 31,36 52,36" fill={dark?"#9aa0a7":"#4d5258"}/></svg>
+            <div className="leading-none">
+              <div className="flex items-baseline gap-1.5"><span className="text-lg font-extrabold tracking-tight" style={{color:dark?"#7fd9c4":"#2a7c8f"}}>KWM</span><span className={`text-sm font-semibold ${c.head}`}>Auto Screener</span></div>
+              <div className={`text-[11px] mt-1 tracking-wide ${c.sub}`}>Multi Time Frame Setups · by KB</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <div className="text-right hidden sm:block">
+              <div className={`flex items-center gap-1.5 justify-end text-xs font-semibold ${feed?"text-emerald-500":"text-amber-500"}`}><span className={`h-2 w-2 rounded-full ${feed?"bg-emerald-500 animate-pulse":"bg-amber-500"}`}/>{feed?"LIVE FEED":"SAMPLE DATA"}</div>
+              <div className={`text-[11px] mono mt-1 ${c.sub}`}>upd {feed?(feed.updated||updated):updated}</div>
+            </div>
+            <label className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold cursor-pointer ${c.pill}`}><input type="file" accept=".json" onChange={onUpload} className="hidden"/><ArrowUpRight size={15}/><span className="hidden sm:inline">Load</span></label><button onClick={refresh} className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold ${c.pill}`}><RefreshCw size={15} className={spin?"animate-spin":""}/><span className="hidden sm:inline">Refresh</span></button>
+            <button onClick={()=>setDark(d=>!d)} className={`h-9 w-9 grid place-items-center rounded-lg ${c.pill}`}>{dark?<Sun size={16}/>:<Moon size={16}/>}</button>
+          </div>
+        </header>
+
+        <div className={`flex gap-1 border-b ${c.rowB} mb-4`}>
+          {[["scanner","Scanner",LayoutGrid],["history","Last 30 Days",CalendarDays],["performance","Performance",Trophy]].map(([k,l,Ic])=>(
+            <button key={k} onClick={()=>setTab(k)} className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition ${tab===k?"":"border-transparent "+c.sub}`} style={tab===k?{borderColor:MINT,color:dark?"#fff":"#111"}:undefined}><Ic size={15}/> {l}</button>
+          ))}
+        </div>
+
+        {tab==="scanner" && <>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <select value={universe} onChange={e=>setUniverse(e.target.value)} className={`rounded-md border px-2.5 py-1.5 text-sm font-semibold ${c.input} ${c.head}`}>{UNIVERSES.map(u=><option key={u}>{u}</option>)}</select>
+            <select value={sector} onChange={e=>setSector(e.target.value)} className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}>{sectors.map(s=><option key={s}>{s==="All"?"All sectors":s}</option>)}</select>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+            <Card label="Setups" val={counts.total} col={dark?"#fff":"#111"} active={sig==="all"&&!spikeOnly} onClick={()=>{setSig("all");setSpikeOnly(false);}}/>
+            <Card label="Triggered" val={counts.trig} col="#10b981" active={sig==="Triggered"} onClick={()=>{setSig("Triggered");setSpikeOnly(false);}}/>
+            <Card label="In Zone" val={counts.zone} col="#0891b2" active={sig==="In Zone"} onClick={()=>{setSig("In Zone");setSpikeOnly(false);}}/>
+            <Card label="Vol Spikes" val={counts.spike} col="#ea580c" active={spikeOnly} onClick={()=>setSpikeOnly(v=>!v)}/>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            {[["all","ALL"],...TFS.map(t=>[t,t])].map(([v,l])=>(<button key={v} onClick={()=>setTf(v)} className={`px-3 py-1.5 rounded-md text-xs font-semibold tracking-wide transition ${tf===v?"text-black":c.pill}`} style={tf===v?{background:MINT}:undefined}>{l}</button>))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[150px]"><Search size={14} className={`absolute left-2.5 top-1/2 -translate-y-1/2 ${c.sub}`}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search symbol…" className={`w-full rounded-md border pl-8 pr-3 py-1.5 text-sm ${c.input} ${c.text} focus:outline-none`}/></div>
+            <select value={sig} onChange={e=>setSig(e.target.value)} className={`rounded-md border px-2.5 py-1.5 text-sm ${c.input}`}><option value="all">All signals</option>{SIGNALS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+            <button onClick={()=>copyText(flatString())} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white" style={{background:TEAL}}><CandlestickChart size={15}/> Copy for TradingView</button>
+            <button onClick={()=>downloadFile(sectionString(),`kwm_watchlist_${tf}.txt`)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white" style={{background:CHAR}}><Download size={15}/> Download TXT</button>
+            <button onClick={()=>setSpikeOnly(v=>!v)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold border transition ${spikeOnly?"text-orange-500 border-orange-500/40 bg-orange-500/15":c.pill}`}><Zap size={14}/> Vol spike</button>
+          </div>
+
+          <div className={`rounded-xl border overflow-hidden ${c.panel}`}>
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead className={`${c.solid} border-b ${c.rowB}`}><tr className={`text-[11px] uppercase tracking-wider ${c.sub}`}>
+                <th className="px-3 py-2 w-9"><input type="checkbox" checked={allShown} onChange={toggleAll}/></th>
+                <th className="px-3 py-2 text-left font-semibold">Symbol</th>
+                <th className="px-3 py-2 text-left font-semibold hidden lg:table-cell">Sector</th>
+                {tf==="all"&&<th className="px-3 py-2 text-left font-semibold">TF</th>}
+                <th className="px-3 py-2 text-left font-semibold">Trend</th>
+                <th className="px-3 py-2 text-left font-semibold">Signal</th>
+                <th className="px-3 py-2 text-right font-semibold hidden md:table-cell">Entry Zone</th>
+                <th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">LTP</th>
+                <th className="px-3 py-2 text-right font-semibold">Since Trig</th>
+                <th className="px-3 py-2 text-right font-semibold">Vol ×avg</th>
+                <th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">Confirmed</th>
+              </tr></thead>
+              <tbody>{rows.map((r,i)=>(
+                <tr key={r.id} className={`row border-b ${c.rowB} ${c.rowH}`} style={{animationDelay:`${Math.min(i*10,250)}ms`}}>
+                  <td className="px-3 py-2"><input type="checkbox" checked={sel.has(r.id)} onChange={()=>toggleRow(r.id)}/></td>
+                  <td className={`px-3 py-2 font-semibold ${c.head}`}>{r.sym}</td>
+                  <td className={`px-3 py-2 hidden lg:table-cell ${c.sub}`}>{r.sector}</td>
+                  {tf==="all"&&<td className="px-3 py-2"><span className={`mono text-xs rounded px-1.5 py-0.5 ${c.chip}`}>{r.tf}</span></td>}
+                  <td className="px-3 py-2">{r.up?<TrendingUp size={16} className="text-emerald-500"/>:<TrendingDown size={16} className="text-red-500"/>}</td>
+                  <td className="px-3 py-2"><span className={`text-[11px] font-semibold px-2 py-0.5 rounded ring-1 ${SIG[r.sig]}`}>{r.sig}</span></td>
+                  <td className={`px-3 py-2 text-right mono text-xs hidden md:table-cell ${c.sub}`}>{fmt(r.zLow)}–{fmt(r.zHigh)}</td>
+                  <td className={`px-3 py-2 text-right mono hidden sm:table-cell ${c.text}`}>{fmt(r.ltp)}</td>
+                  <td className="px-3 py-2 text-right mono">{r.sinceTrig!=null?<span className="text-emerald-500 inline-flex items-center gap-0.5"><ArrowUpRight size={12}/>{r.sinceTrig}%</span>:<span className={c.sub}>—</span>}</td>
+                  <td className="px-3 py-2 text-right"><span className={`inline-flex items-center gap-1 mono font-semibold ${r.spike?"text-orange-500":c.sub}`}>{r.spike&&<Zap size={12}/>}{r.volX}×</span></td>
+                  <td className={`px-3 py-2 text-right mono text-xs hidden sm:table-cell ${c.sub}`}><span className="inline-flex items-center gap-1"><Clock size={11}/>{ago(r.confMin)}</span></td>
+                </tr>))}
+                {rows.length===0&&<tr><td colSpan={11} className={`px-3 py-10 text-center ${c.sub}`}>No setups match these filters.</td></tr>}
+              </tbody>
+            </table></div>
+          </div>
+          <p className={`text-[11px] mt-2 ${c.sub}`}>{sel.size>0?`${sel.size} selected · `:""}Sample data for interface preview. Hit Refresh to re-run the scan.</p>
+        </>}
+
+        {tab==="history" && <div className={`rounded-xl border overflow-hidden ${c.panel}`}>
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead className={`${c.solid} border-b ${c.rowB}`}><tr className={`text-[11px] uppercase tracking-wider ${c.sub}`}>
+              <th className="px-3 py-2 text-left font-semibold">Date</th><th className="px-3 py-2 text-right font-semibold">Triggered</th>
+              <th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">In Zone</th><th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">Vol Spikes</th>
+              <th className="px-3 py-2 text-right font-semibold">Targets Hit</th><th className="px-3 py-2 text-right font-semibold">Hit %</th><th className="px-3 py-2 text-right font-semibold hidden md:table-cell">Avg Gain</th>
+            </tr></thead>
+            <tbody>{[...history].reverse().map((h,i)=>(<tr key={i} className={`border-b ${c.rowB} ${c.rowH}`}>
+              <td className={`px-3 py-2 font-semibold ${c.head}`}>{h.date}</td><td className="px-3 py-2 text-right mono text-emerald-500">{h.trig}</td>
+              <td className={`px-3 py-2 text-right mono hidden sm:table-cell ${c.text}`}>{h.zone}</td><td className="px-3 py-2 text-right mono text-orange-500 hidden sm:table-cell">{h.spikes}</td>
+              <td className={`px-3 py-2 text-right mono ${c.text}`}>{h.hit}</td><td className="px-3 py-2 text-right mono font-semibold" style={{color:h.pct>=60?"#10b981":h.pct>=45?"#0891b2":"#ea580c"}}>{h.pct}%</td>
+              <td className={`px-3 py-2 text-right mono hidden md:table-cell ${c.sub}`}>{h.avg}%</td>
+            </tr>))}</tbody>
+          </table></div>
+        </div>}
+
+        {tab==="performance" && <div>
+          <div className="flex gap-1.5 mb-4">{["Daily","Weekly","Monthly"].map(p=>(<button key={p} onClick={()=>setPeriod(p)} className={`px-3 py-1.5 rounded-md text-xs font-semibold ${period===p?"text-black":c.pill}`} style={period===p?{background:MINT}:undefined}>{p}</button>))}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {[["Triggered",pcards.trig,dark?"#fff":"#111"],["Targets Hit",pcards.hit,"#10b981"],["Hit Rate",pcards.rate+"%","#0891b2"],["Avg Gain on Hits",pcards.avg+"%","#ea580c"]].map(([l,v,col])=>(
+              <div key={l} className={`rounded-xl border px-3.5 py-3 ${c.panel}`}><div className={`text-[10px] uppercase tracking-wider ${c.sub}`}>{l}</div><div className="text-2xl font-extrabold mono" style={{color:col}}>{v}</div></div>))}
+          </div>
+          <div className={`rounded-xl border overflow-hidden ${c.panel}`}>
+            <div className={`px-3.5 py-2.5 text-xs uppercase tracking-wider border-b ${c.rowB} ${c.sub}`}>Triggered trades · {period.toLowerCase()}</div>
+            <div className="overflow-x-auto"><table className="w-full text-sm">
+              <thead className={`${c.solid} border-b ${c.rowB}`}><tr className={`text-[11px] uppercase tracking-wider ${c.sub}`}>
+                <th className="px-3 py-2 text-left font-semibold">Date</th><th className="px-3 py-2 text-left font-semibold">Symbol</th>
+                <th className="px-3 py-2 text-left font-semibold">TF</th><th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">Entry</th>
+                <th className="px-3 py-2 text-right font-semibold hidden sm:table-cell">Target</th><th className="px-3 py-2 text-left font-semibold">Status</th><th className="px-3 py-2 text-right font-semibold">Gain</th>
+              </tr></thead>
+              <tbody>{ptrades.map(t=>(<tr key={t.id} className={`border-b ${c.rowB} ${c.rowH}`}>
+                <td className={`px-3 py-2 ${c.sub}`}>{t.date}</td><td className={`px-3 py-2 font-semibold ${c.head}`}>{t.sym}</td>
+                <td className="px-3 py-2"><span className={`mono text-xs rounded px-1.5 py-0.5 ${c.chip}`}>{t.tf}</span></td>
+                <td className={`px-3 py-2 text-right mono hidden sm:table-cell ${c.text}`}>{fmt(t.entry)}</td><td className={`px-3 py-2 text-right mono hidden sm:table-cell ${c.sub}`}>{fmt(t.target)}</td>
+                <td className="px-3 py-2"><span className={`text-[11px] font-semibold px-2 py-0.5 rounded ring-1 ${TST[t.status]}`}>{t.status}</span></td>
+                <td className="px-3 py-2 text-right mono font-semibold" style={{color:t.gain>0?"#10b981":t.gain<0?"#ef4444":undefined}}>{t.gain>0?"+":""}{t.gain}%</td>
+              </tr>))}
+              {ptrades.length===0&&<tr><td colSpan={7} className={`px-3 py-8 text-center ${c.sub}`}>No triggered trades in this window.</td></tr>}
+              </tbody>
+            </table></div>
+          </div>
+          <p className={`text-[11px] mt-3 ${c.sub}`}>Target hit = price <span className={`font-semibold ${c.text}`}>touched</span> the upper entry zone — first touch counts, it does not need to reach the far line of the zone. Sample data shown.</p>
+        </div>}
+
+        <footer className={`mt-8 pt-4 border-t ${c.rowB}`}>
+          <p className={`text-[10.5px] leading-relaxed ${c.sub}`}><span className={`font-semibold ${c.text}`}>Disclaimer.</span> This screener is an educational and informational tool only. Its operator is <span className="font-semibold">not a SEBI Registered Investment Adviser</span>, and nothing displayed here is investment advice, research, or a recommendation to buy, sell, or hold any security. All outputs are automatically generated technical signals that may be inaccurate, delayed, or incomplete, and are not a guarantee of any result. Trading and investing in securities carry substantial risk of loss; past performance does not indicate future results. You are solely responsible for your own decisions and should do your own due diligence and consult a qualified, registered financial adviser before acting. The operator accepts no liability for any loss or damage arising from use of, or reliance on, this tool.</p>
+        </footer>
+      </div>
+
+      {toast&&<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-black text-sm font-semibold shadow-lg" style={{background:MINT}}><Check size={15}/> {toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script></body></html>
