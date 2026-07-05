@@ -98,16 +98,31 @@ def detect_chat_id():
 
 
 def send(text):
-    """Send one message (HTML mode). Returns True/False; never raises."""
+    """Send one message (HTML mode). Returns True/False; never raises.
+
+    Self-healing: when Telegram upgrades a group to a supergroup its chat id CHANGES and the
+    old id starts bouncing ("migrate_to_chat_id" in the error) — follow the new id, persist
+    it, and retry once, so a settings change in the group can never silently kill alerts."""
     c = _creds()
     tok, chat = c.get("TELEGRAM_BOT_TOKEN"), c.get("TELEGRAM_CHAT_ID")
     if not (tok and chat):
         return False
+
+    def _post(chat_id):
+        return requests.post(f"{API}/bot{tok}/sendMessage", timeout=15,
+                             json={"chat_id": chat_id, "text": text[:4000],
+                                   "parse_mode": "HTML",
+                                   "disable_web_page_preview": True}).json()
+
     try:
-        r = requests.post(f"{API}/bot{tok}/sendMessage", timeout=15,
-                          json={"chat_id": chat, "text": text[:4000],
-                                "parse_mode": "HTML", "disable_web_page_preview": True})
-        return bool(r.json().get("ok"))
+        r = _post(chat)
+        if r.get("ok"):
+            return True
+        new_id = (r.get("parameters") or {}).get("migrate_to_chat_id")
+        if new_id:
+            write_creds(chat_id=str(new_id))
+            return bool(_post(str(new_id)).get("ok"))
+        return False
     except Exception:
         return False
 
