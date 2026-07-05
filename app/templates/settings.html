@@ -11,9 +11,14 @@
   <input type="hidden" name="market" value="{{ market }}">
   <h3>US &mdash; Polygon (a free key works)</h3>
   <label>Polygon API key: <input type="text" name="polygon_key" size="48" placeholder="leave blank to keep current"></label>
-  <h3>India &mdash; Dhan (optional)</h3>
-  <label>Client ID: <input type="text" name="dhan_client_id" size="20"></label><br>
-  <label>Access token: <input type="text" name="dhan_token" size="60"></label><br><br>
+  <h3>India &mdash; Dhan</h3>
+  <p class="muted">Enter the three secrets below <b>once</b> &mdash; the app then creates the daily
+    access token by itself (immediately after you save, and every morning 08:30 IST).
+    Auto-token: {{ 'ready ✓' if data.keys.dhan_auto else 'NOT configured ✗' }}</p>
+  <label>Client ID: <input type="text" name="dhan_client_id" size="20" placeholder="leave blank to keep current"></label><br>
+  <label>MPIN: <input type="password" name="dhan_pin" size="12" placeholder="unchanged"></label><br>
+  <label>TOTP secret: <input type="password" name="dhan_totp_secret" size="40" placeholder="unchanged &mdash; the code from Dhan's 2FA setup"></label><br>
+  <label>Access token (optional &mdash; auto-generated): <input type="password" name="dhan_token" size="60" placeholder="unchanged"></label><br><br>
   <button type="submit">Save keys</button>
 </form>
 <p class="muted">After saving, click <b>Refresh data</b> (top bar) to fetch with your key. The first

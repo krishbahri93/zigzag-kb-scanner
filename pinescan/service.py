@@ -47,13 +47,32 @@ _SCAN_PARAM_KEYS = ("minDeclinePct", "pivotSensPct", "zigDepth", "maxSwings",
 # ===========================================================================
 # data status (cheap — for the always-visible status strip)
 # ===========================================================================
+def _dhan_creds_on_disk():
+    """The KEY=VALUE contents of .dhan_creds as a dict ({} if absent). Same format the token mint
+    (scripts/refresh_dhan_token.py) reads and rewrites."""
+    out = {}
+    if os.path.exists(".dhan_creds"):
+        for line in open(".dhan_creds", encoding="utf-8"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
 def _keys_present():
-    """Whether each provider key is available (env OR a creds file) — WITHOUT loading/printing, so
-    it's safe to call on every status poll."""
+    """Whether each provider key is available (env OR the creds file). Cheap enough for every
+    status poll (.dhan_creds is a 4-line file). `dhan` = can fetch data right now (has a token);
+    `dhan_auto` = the long-lived secrets are saved, so the daily 08:30 token mint runs unattended."""
     poly = bool(os.environ.get("POLYGON_API_KEY") or os.path.exists(".polygon_key"))
-    dhan = bool((os.environ.get("DHAN_CLIENT_ID") and os.environ.get("DHAN_ACCESS_TOKEN"))
-                or os.path.exists(".dhan_creds"))
-    return {"polygon": poly, "dhan": dhan}
+    creds = _dhan_creds_on_disk()
+
+    def have(k):
+        return bool(os.environ.get(k) or creds.get(k))
+
+    dhan = have("DHAN_CLIENT_ID") and have("DHAN_ACCESS_TOKEN")
+    dhan_auto = have("DHAN_CLIENT_ID") and have("DHAN_PIN") and have("DHAN_TOTP_SECRET")
+    return {"polygon": poly, "dhan": dhan, "dhan_auto": dhan_auto}
 
 
 def data_status(market):
@@ -299,12 +318,20 @@ def write_polygon_key(key):
     us.ensure_api_key()
 
 
-def write_dhan_creds(client_id, token):
-    """Persist Dhan creds to .dhan_creds (atomic) and reload them; reset the cached client so the
-    new token takes effect in this process."""
-    io_safe.atomic_write_text(".dhan_creds",
-                              f"DHAN_CLIENT_ID={client_id.strip()}\nDHAN_ACCESS_TOKEN={token.strip()}\n")
-    os.environ.pop("DHAN_CLIENT_ID", None)
-    os.environ.pop("DHAN_ACCESS_TOKEN", None)
+def write_dhan_creds(client_id="", token="", pin="", totp_secret=""):
+    """MERGE the provided (non-empty) Dhan values into .dhan_creds (atomic) and reload. The file
+    also holds the long-lived DHAN_PIN + DHAN_TOTP_SECRET that the daily token mint
+    (scripts/refresh_dhan_token.py) needs — never clobber keys the caller didn't provide."""
+    creds = _dhan_creds_on_disk()
+    for k, v in (("DHAN_CLIENT_ID", client_id), ("DHAN_ACCESS_TOKEN", token),
+                 ("DHAN_PIN", pin), ("DHAN_TOTP_SECRET", totp_secret)):
+        if v and v.strip():
+            creds[k] = v.strip()
+    order = ["DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN", "DHAN_PIN", "DHAN_TOTP_SECRET"]
+    lines = [f"{k}={creds[k]}" for k in order if k in creds]
+    lines += [f"{k}={v}" for k, v in creds.items() if k not in order]
+    io_safe.atomic_write_text(".dhan_creds", "\n".join(lines) + "\n")
+    for k in order:
+        os.environ.pop(k, None)              # the file is authoritative after a save
     india._dhan = None                       # rebuild the Dhan client with the new token next call
-    india.ensure_dhan_creds()
+    india.ensure_dhan_creds()                # False while the token is still missing — mint fills it

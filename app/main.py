@@ -14,6 +14,8 @@ ROUTES
   GET  /status           -> {data_status, job} JSON for the status-strip poll
 """
 import os
+import subprocess
+import sys
 
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -67,13 +69,32 @@ def settings_page(request: Request, market: str = "us"):
     return templates.TemplateResponse(request, "settings.html", _ctx(request, market))
 
 
+def _mint_dhan_token(prog):
+    """Run the headless Dhan token mint (the same script the 08:30 timer runs) as a background job,
+    so freshly saved secrets are validated within seconds instead of the next morning."""
+    prog("Contacting Dhan to mint today's token …")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = os.path.join(root, "scripts", "refresh_dhan_token.py")
+    r = subprocess.run([sys.executable, script], cwd=root,
+                       capture_output=True, text=True, timeout=300)
+    if r.returncode == 0:
+        return {"ok": True, "msg": "Dhan token minted ✓ — it now auto-renews daily at 08:30."}
+    err = (r.stderr or r.stdout or "").strip().splitlines()
+    return {"ok": False, "msg": f"Dhan token mint failed: {err[-1][:140] if err else 'unknown error'}"}
+
+
 @app.post("/settings/keys")
 def save_keys(market: str = Form("us"), polygon_key: str = Form(""),
-              dhan_client_id: str = Form(""), dhan_token: str = Form("")):
+              dhan_client_id: str = Form(""), dhan_token: str = Form(""),
+              dhan_pin: str = Form(""), dhan_totp_secret: str = Form("")):
     if polygon_key.strip():
         service.write_polygon_key(polygon_key)
-    if dhan_client_id.strip() and dhan_token.strip():
-        service.write_dhan_creds(dhan_client_id, dhan_token)
+    if any(v.strip() for v in (dhan_client_id, dhan_token, dhan_pin, dhan_totp_secret)):
+        service.write_dhan_creds(dhan_client_id, dhan_token, dhan_pin, dhan_totp_secret)
+        # all three long-lived secrets present -> mint a token right now (single-flight, visible
+        # in the status strip), so the user immediately learns whether the secrets work
+        if service.data_status("india")["keys"].get("dhan_auto"):
+            jobs.start(_mint_dhan_token, label="Minting today's Dhan token …")
     return RedirectResponse(f"/settings?market={market}", status_code=303)
 
 
