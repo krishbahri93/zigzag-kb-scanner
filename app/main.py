@@ -80,6 +80,16 @@ def active_page(request: Request, market: str = "india", scanner: str = "nsv2"):
     return templates.TemplateResponse(request, "active.html", ctx)
 
 
+@app.get("/targets")
+def targets_page(request: Request, market: str = "india"):
+    return templates.TemplateResponse(request, "targets.html", _ctx(request, market, page="targets"))
+
+
+@app.get("/stops")
+def stops_page(request: Request, market: str = "india"):
+    return templates.TemplateResponse(request, "stops.html", _ctx(request, market, page="stops"))
+
+
 @app.get("/glossary")
 def glossary_page(request: Request, market: str = "india"):
     return templates.TemplateResponse(request, "glossary.html", _ctx(request, market, page="glossary"))

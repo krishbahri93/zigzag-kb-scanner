@@ -226,14 +226,20 @@
   <div class="navrow">
     <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
     <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active</a>
+    <a class="tab {% if page == 'targets' %}on{% endif %}" href="/targets?market={{ market }}">Target Hits</a>
+    <a class="tab {% if page == 'stops' %}on{% endif %}" href="/stops?market={{ market }}">Stop Hits</a>
     <a class="tab {% if page == 'glossary' %}on{% endif %}" href="/glossary?market={{ market }}">Glossary</a>
     <a class="tab {% if page == 'settings' %}on{% endif %}" href="/settings?market={{ market }}">Settings</a>
     <span class="mkt">
-      {% for m in markets %}<a class="chip {% if m == market %}on{% endif %}" href="?market={{ m }}">{{ m|upper }}</a>{% endfor %}
+      {% for m in markets %}<a class="chip {% if m == market %}on{% endif %}" href="?market={{ m }}">{{ '🇺🇸' if m == 'us' else '🇮🇳' }} {{ m|upper }}</a>{% endfor %}
     </span>
   </div>
 </header>
 <main>{% block content %}{% endblock %}</main>
+<footer style="max-width:1200px;margin:0 auto;padding:0 16px 20px;font-size:11.5px;color:var(--muted)">
+  Private personal-research tool · <b>Not a SEBI-registered Investment Adviser or Research Analyst</b> ·
+  nothing here is investment advice — <a href="/glossary?market={{ market }}#disclaimer">full disclaimer</a>.
+</footer>
 <script>
   // theme toggle (persisted)
   document.getElementById("themeBtn").onclick = () => {

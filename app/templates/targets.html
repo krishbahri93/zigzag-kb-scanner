@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="meta" id="meta">Loading target hits …</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="toolbar">
+  <span class="swingchips" id="chips"></span>
+  <input type="text" id="fQ" placeholder="Search symbol…">
+</div>
+
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr id="head"></tr></thead>
+  <tbody id="body"></tbody>
+</table></div>
+<div class="mcards" id="mcards"></div>
+
+<p class="foot">Trades that reached their <b>target band</b> in the last 30 days, per the system's
+rules (a target hit completes that trade level). Gain % is the system's move: trigger price to the
+target band. Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  const DAYS = 30;
+  const COLS = [
+    { k: "sym",       t: "Symbol"    },
+    { k: "swing",     t: "Trade"     },
+    { k: "tp_date",   t: "Hit on"    },
+    { k: "entry_hi",  t: "Entry"     },
+    { k: "tp_lo",     t: "Target"    },
+    { k: "_gain",     t: "Gain %"    },
+    { k: "depth_pct", t: "Depth %"   },
+  ];
+  let trades = [], sortK = "tp_date", sortDir = -1, expanded = null;
+  const F = { swing: "", q: "" };
+
+  const gain = t => (t.entry_hi && t.tp_lo) ? (t.tp_lo / t.entry_hi - 1) * 100 : null;
+  const val = (t, k) => k === "_gain" ? gain(t) : t[k];
+  const key = t => t.sym + ":" + t.swing + ":" + t.tp_date;
+  const withinDays = (iso, n) => iso && (Date.now() - new Date(iso).getTime()) <= n * 86400e3;
+
+  function visible() {
+    return trades.filter(t =>
+      (!F.swing || t.swing === F.swing) &&
+      (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
+  }
+
+  function render() {
+    const rs = visible().slice().sort((a, b) => {
+      const x = val(a, sortK), y = val(b, sortK);
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+    });
+
+    const week = trades.filter(t => withinDays(t.tp_date, 7)).length;
+    const avg = trades.length
+        ? trades.reduce((s, t) => s + (gain(t) || 0), 0) / trades.length : null;
+    $("cards").innerHTML = `
+      <div class="kcard v-trig"><div class="lbl">🎯 Hits — 30 days</div><div class="val">${trades.length}</div></div>
+      <div class="kcard v-zone"><div class="lbl">This week</div><div class="val">${week}</div></div>
+      <div class="kcard v-fresh"><div class="lbl">Avg system gain</div><div class="val">${avg === null ? "—" : "+" + K.nf(avg, 1) + "%"}</div></div>`;
+
+    $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
+      `<span class="chip ${F.swing === s ? "on" : ""}" data-s="${s}">${s || "All"}</span>`).join("");
+    document.querySelectorAll("#chips .chip").forEach(el => el.onclick = () => {
+      F.swing = el.dataset.s; render();
+    });
+
+    $("head").innerHTML = COLS.map(c =>
+      `<th data-k="${c.k}">${c.t} ${sortK === c.k ? `<span class="arr">${sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`
+    ).join("");
+    document.querySelectorAll("#head th[data-k]").forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = -1; }
+      render();
+    });
+
+    $("body").innerHTML = rs.map((t, i) => {
+      const g = gain(t);
+      return `<tr class="datarow" data-i="${i}">
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a></td>
+        <td style="text-align:left"><span class="tn">${t.swing}</span></td>
+        <td class="muted">${t.tp_date || "—"}</td>
+        <td>${K.nf(t.entry_hi)}</td>
+        <td>${K.nf(t.tp_lo)}</td>
+        <td class="pos">${g === null ? "—" : "+" + K.nf(g, 1) + "%"}</td>
+        <td>${K.nf(t.depth_pct, 1)}%</td>
+      </tr>` + (expanded === key(t) ? detailRow(t) : "");
+    }).join("") || `<tr><td colspan="7" class="muted" style="padding:24px;text-align:center">No target hits in the last ${DAYS} days.</td></tr>`;
+
+    document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
+      if (e.target.closest("a")) return;
+      const t = rs[Number(tr.dataset.i)];
+      expanded = (expanded === key(t)) ? null : key(t);
+      render();
+    });
+
+    $("mcards").innerHTML = rs.map((t, i) => {
+      const g = gain(t);
+      return `<div class="mcard" data-i="${i}">
+        <div class="r1">
+          <a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>
+          <span class="tn">${t.swing}</span>🎯
+          <span class="right num"><b class="pos">${g === null ? "—" : "+" + K.nf(g, 1) + "%"}</b><br>
+            <span class="muted" style="font-size:12px">${t.tp_date || ""}</span></span>
+        </div>
+        <div class="r2">
+          <span>Entry <b>${K.nf(t.entry_hi)}</b></span>
+          <span>Target <b>${K.nf(t.tp_lo)}</b></span>
+          <span>Depth <b>${K.nf(t.depth_pct, 1)}%</b></span>
+        </div>
+      </div>`;
+    }).join("") || `<div class="muted" style="padding:20px;text-align:center">No target hits in the last ${DAYS} days.</div>`;
+  }
+
+  function detailRow(t) {
+    return `<tr class="detail"><td colspan="7">
+      <div class="swings"><div class="swingbox"><b>${t.swing}</b> · peak A ${K.nf(t.A)} ·
+        B ${K.nf(t.B)} · sector ${t.sector || "—"}<br>
+        Entry band ${K.band(t.entry_lo, t.entry_hi)} · Target band ${K.band(t.tp_lo, t.tp_hi)} ·
+        Stop ${K.nf(t.sl)}</div></div></td></tr>`;
+  }
+
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+
+  async function load() {
+    let res;
+    try { res = await K.fetchScan(); }
+    catch (e) { $("meta").textContent = "Could not load the scan — check the connection and refresh."; return; }
+    if (!res.scan) { $("meta").textContent = "No scan yet — press Refresh on the Scanner tab."; return; }
+    trades = [];
+    (res.scan.rows || []).forEach(r => {                    // include expired structures: a hit is a hit
+      (r.swings || []).forEach(s => {
+        if (s.state === "TP" && withinDays(s.tp_date, DAYS)) {
+          trades.push(Object.assign({}, s, { sym: r.sym, sector: r.sector || "", B: r.B, asof: r.asof }));
+        }
+      });
+    });
+    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · <b>${trades.length}</b> target hits in the last ${DAYS} days`;
+    render();
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+{% endblock %}

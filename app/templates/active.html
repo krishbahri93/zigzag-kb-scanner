@@ -2,6 +2,8 @@
 {% block content %}
 <div class="meta" id="meta">Loading active trades …</div>
 
+<div class="cards" id="cards"></div>
+
 <div class="toolbar">
   <span class="swingchips" id="chips"></span>
   <select id="fSector"><option value="">All sectors</option></select>
@@ -28,8 +30,9 @@ the initial risk. Informational only — not financial advice.</p>
     { k: "swing",      t: "Trade"      },
     { k: "entry_date", t: "Entered"    },
     { k: "_days",      t: "Bars held"  },
-    { k: "_entry",     t: "Entry band" },
+    { k: "_entry",     t: "Entry"      },
     { k: "ltp",        t: "CMP"        },
+    { k: "_since",     t: "Since entry %" },
     { k: "day_pct",    t: "Day %"      },
     { k: "_r",         t: "R"          },
     { k: "_totp",      t: "To target %"},
@@ -37,18 +40,22 @@ the initial risk. Informational only — not financial advice.</p>
     { k: "vol_x",      t: "Vol ×"      },
   ];
   let trades = [], sortK = "_r", sortDir = -1, expanded = null;
-  const F = { sector: "", swing: "", q: "" };
+  const F = { sector: "", swing: "", q: "", near: "" };
 
   const rMult  = t => (t.entry_hi && t.sl && t.entry_hi > t.sl && t.ltp !== null)
       ? (t.ltp - t.entry_hi) / (t.entry_hi - t.sl) : null;
+  const since  = t => (t.entry_hi && t.ltp !== null) ? (t.ltp / t.entry_hi - 1) * 100 : null;
   const toTp   = t => (t.tp_lo && t.ltp) ? (t.tp_lo / t.ltp - 1) * 100 : null;
   const nearSL = t => (t.sl && t.ltp !== null) && t.ltp <= t.sl * 1.03;
-  const val = (t, k) => k === "_days" ? t.bars_in_state : k === "_entry" ? t.entry_lo
-            : k === "_r" ? rMult(t) : k === "_totp" ? toTp(t) : k === "_sl" ? t.sl : t[k];
+  const nearTP = t => { const x = toTp(t); return x !== null && x <= 3; };
+  const val = (t, k) => k === "_days" ? t.bars_in_state : k === "_entry" ? t.entry_hi
+            : k === "_r" ? rMult(t) : k === "_since" ? since(t)
+            : k === "_totp" ? toTp(t) : k === "_sl" ? t.sl : t[k];
   const key = t => t.sym + ":" + t.swing;
 
   function visible() {
     return trades.filter(t =>
+      (!F.near || (F.near === "sl" ? nearSL(t) : nearTP(t))) &&
       (!F.swing || t.swing === F.swing) &&
       (!F.sector || t.sector === F.sector) &&
       (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
@@ -60,6 +67,21 @@ the initial risk. Informational only — not financial advice.</p>
       if (x === null || x === undefined) return 1;
       if (y === null || y === undefined) return -1;
       return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+    });
+
+    // top cards: quick track of trades nearing an exit, either way
+    const C = [
+      ["All active",          trades.length,                 "",   ""      ],
+      ["🎯 Approaching target", trades.filter(nearTP).length, "tp", "v-trig"],
+      ["🛑 Approaching stop",   trades.filter(nearSL).length, "sl", "v-appr"],
+    ];
+    $("cards").innerHTML = C.map(c =>
+      `<div class="kcard ${c[3]} ${c[2] && F.near === c[2] ? "on" : ""}" data-f="${c[2]}">
+        <div class="lbl">${c[0]}</div><div class="val">${c[1]}</div></div>`).join("");
+    document.querySelectorAll(".kcard").forEach(el => el.onclick = () => {
+      const f = el.dataset.f;
+      F.near = (f && F.near !== f) ? f : "";
+      render();
     });
 
     $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
@@ -78,21 +100,25 @@ the initial risk. Informational only — not financial advice.</p>
     });
 
     $("body").innerHTML = rs.map((t, i) => {
-      const r = rMult(t), tp = toTp(t), dp = t.day_pct;
+      const r = rMult(t), tp = toTp(t), dp = t.day_pct, se = since(t);
+      const warnTag = nearSL(t)
+        ? '<br><span style="font-size:10.5px;font-weight:700;color:var(--red)">🛑 approaching stop loss</span>'
+        : (nearTP(t) ? '<br><span style="font-size:10.5px;font-weight:700;color:var(--accent-deep)">🎯 approaching target</span>' : "");
       return `<tr class="datarow ${nearSL(t) ? "warn" : ""}" data-i="${i}">
-        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a></td>
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${warnTag}</td>
         <td style="text-align:left"><span class="tn">${t.swing}</span></td>
         <td class="muted">${t.entry_date || "—"}</td>
         <td>${t.bars_in_state ?? "—"}</td>
-        <td>${K.band(t.entry_lo, t.entry_hi)}</td>
+        <td>${K.nf(t.entry_hi)}</td>
         <td>${K.nf(t.ltp)}</td>
+        <td class="${se > 0 ? "pos" : se < 0 ? "neg" : ""}">${se === null ? "—" : (se > 0 ? "+" : "") + K.nf(se, 1) + "%"}</td>
         <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</td>
         <td class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</td>
         <td>${tp === null ? "—" : "+" + K.nf(tp, 1) + "%"}</td>
         <td>${K.nf(t.sl)}${nearSL(t) ? " ⚠" : ""}</td>
         <td>${(t.vol_x === null || t.vol_x === undefined) ? "—" : (t.vol_x >= 2 ? `<span class="volx">⚡ ${K.nf(t.vol_x, 1)}×</span>` : K.nf(t.vol_x, 1) + "×")}</td>
       </tr>` + (expanded === key(t) ? detailRow(t) : "");
-    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
+    }).join("") || `<tr><td colspan="12" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
 
     document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
       if (e.target.closest("a")) return;
@@ -104,12 +130,16 @@ the initial risk. Informational only — not financial advice.</p>
     // phone cards
     $("mcards").innerHTML = rs.map((t, i) => {
       const r = rMult(t), dp = t.day_pct;
-      return `<div class="mcard ${nearSL(t) ? "warn" : ""}" data-i="${i}" ${nearSL(t) ? 'style="border-color:var(--amber)"' : ""}>
+      const se = since(t);
+      const warnTag = nearSL(t)
+        ? '<span style="font-size:10.5px;font-weight:700;color:var(--red)">🛑 near stop</span>'
+        : (nearTP(t) ? '<span style="font-size:10.5px;font-weight:700;color:var(--accent-deep)">🎯 near target</span>' : "");
+      return `<div class="mcard" data-i="${i}" ${nearSL(t) ? 'style="border-color:var(--amber)"' : ""}>
         <div class="r1">
           <a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>
-          <span class="tn">${t.swing}</span>${nearSL(t) ? "⚠" : ""}
+          <span class="tn">${t.swing}</span>${warnTag}
           <span class="right num"><b class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</b><br>
-            <span class="muted" style="font-size:12px">${t.bars_in_state ?? "—"} bars</span></span>
+            <span class="${se > 0 ? "pos" : se < 0 ? "neg" : "muted"}" style="font-size:12px">${se === null ? "" : (se > 0 ? "+" : "") + K.nf(se, 1) + "% since entry"}</span></span>
         </div>
         <div class="r2">
           <span>CMP <b>${K.nf(t.ltp)}</b> <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}">${(dp === null || dp === undefined) ? "" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
@@ -117,8 +147,8 @@ the initial risk. Informational only — not financial advice.</p>
           <span>Target <b>${K.nf(t.tp_lo)}</b></span>
         </div>
         ${expanded === key(t) ? `<div class="more r2">
-          <span>Entered <b>${t.entry_date || "—"}</b></span>
-          <span>Entry <b>${K.band(t.entry_lo, t.entry_hi)}</b></span>
+          <span>Entered <b>${t.entry_date || "—"} · ${t.bars_in_state ?? "—"} bars</b></span>
+          <span>Entry <b>${K.nf(t.entry_hi)}</b></span>
           <span>To target <b>${toTp(t) === null ? "—" : "+" + K.nf(toTp(t), 1) + "%"}</b></span>
           <span>${t.sector || ""}</span></div>` : ""}
       </div>`;
@@ -134,7 +164,7 @@ the initial risk. Informational only — not financial advice.</p>
   }
 
   function detailRow(t) {
-    return `<tr class="detail"><td colspan="11">
+    return `<tr class="detail"><td colspan="12">
       <div class="swings">
         <div class="swingbox"><b>${t.swing}</b> · depth ${K.nf(t.depth_pct, 1)}% · peak A ${K.nf(t.A)}<br>
           Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>

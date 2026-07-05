@@ -64,14 +64,27 @@ def scan_symbol(sym, df, params=None):
         # engine-truth age: trailing bars in the CURRENT state (ST history is bar-aligned),
         # and — for open trades — the bar date the entry fired (start of the IN run)
         stser = res[f"ST{i}"]
+
+        def _sti_at(j):
+            v = stser[j]
+            return int(v) if (v is not None and v == v) else None
+
         bars_in = 0
         for j in range(last, -1, -1):
-            v = stser[j]
-            vj = int(v) if (v is not None and v == v) else None
-            if vj != sti:
+            if _sti_at(j) != sti:
                 break
             bars_in += 1
         entry_date = str(df.index[last - bars_in + 1].date()) if (sti == 2 and bars_in) else None
+        # a TP'd trade is terminal: the start of its state-3 run is the day the target was hit
+        tp_date = str(df.index[last - bars_in + 1].date()) if (sti == 3 and bars_in) else None
+        # most recent STOP-OUT event: a 2 -> 1 transition in the state history (the SL bar itself
+        # records state 1, since SL re-arms the trade). Bounded walk: exits older than ~90 bars
+        # are ancient history for the dashboard.
+        last_sl_date = None
+        for j in range(last, max(0, last - 90), -1):
+            if _sti_at(j) == 1 and j > 0 and _sti_at(j - 1) == 2:
+                last_sl_date = str(df.index[j].date())
+                break
 
         # this trade's own zone flags (only a waiting trade can be in/approaching its band)
         sw_in = sw_appr = False
@@ -85,6 +98,8 @@ def scan_symbol(sym, df, params=None):
             "state": {1: "wait", 2: "IN", 3: "TP"}.get(sti, "-"),
             "bars_in_state": bars_in,
             "entry_date": entry_date,
+            "tp_date": tp_date,
+            "last_sl_date": last_sl_date,
             "in_band": bool(sw_in),
             "approaching": bool(sw_appr),
             "entry_lo": _f(lv["eL"]), "entry_hi": _f(lv["eH"]),
