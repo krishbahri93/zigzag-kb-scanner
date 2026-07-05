@@ -18,8 +18,8 @@ The phased master plan lives with the owner's Claude Code sessions
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| 0 | Housekeeping: Pine sources committed, AGENTS.md + OWNER.md seeded | in progress |
-| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | pending |
+| 0 | Housekeeping: Pine sources committed, AGENTS.md + OWNER.md seeded | done (2026-07-05) |
+| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | next |
 | 2 | Rich dashboard merged into the FastAPI app | pending |
 | 3 | Market-hours scanning 09:15–15:45 IST, provisional/confirmed states | pending |
 | 4 | Telegram alerts | pending |
@@ -63,7 +63,8 @@ The phased master plan lives with the owner's Claude Code sessions
 ## Hard invariants
 
 1. **Never commit secrets.** `.polygon_key`, `.dhan_creds` (contains Dhan PIN + TOTP seed) are
-   git-ignored and must stay that way. The repo is currently PUBLIC.
+   git-ignored and must stay that way. The repo is currently PUBLIC. Collaborators: the owner
+   (krishbahri93) and his infra partner (MammenK) — coordinate, don't clobber.
 2. **Never delete `data/forward/`** — the paper-trading track record is not regenerable.
 3. **Never commit directly to `main`.** Branch per phase/change; the owner approves merges and
    pushes. Do not push/merge/delete branches without his explicit OK.
