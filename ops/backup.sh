@@ -19,7 +19,7 @@ chmod 700 "$DEST"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/pinescan-$STAMP"
-for f in .dhan_creds .polygon_key .healthchecks; do
+for f in .dhan_creds .polygon_key .healthchecks .telegram; do
     [ -f "$APP_DIR/$f" ] && cp -a "$APP_DIR/$f" "$TMP/pinescan-$STAMP/"
 done
 [ -d "$APP_DIR/data/forward" ] && cp -a "$APP_DIR/data/forward" "$TMP/pinescan-$STAMP/"

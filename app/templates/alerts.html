@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="meta" id="meta">Loading alert log …</div>
+
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr><th style="width:150px">When</th><th style="width:60px">Run</th><th>Alert</th><th style="width:60px">Sent</th></tr></thead>
+  <tbody id="body"></tbody>
+</table></div>
+<div class="mcards" id="mcards"></div>
+
+<p class="foot">Everything the scanner has announced (newest first) — one batched Telegram message
+per scan run, each event exactly once per day. Configure the bot on
+<a href="/settings?market={{ market }}">Settings</a>. Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  async function load() {
+    let res;
+    try { res = await (await fetch("/api/alerts")).json(); }
+    catch (e) { $("meta").textContent = "Could not load the alert log."; return; }
+    const log = (res.alerts || []).slice().reverse();
+    $("meta").innerHTML = res.configured
+      ? `<b>${log.length}</b> alerts logged · Telegram connected ✓`
+      : `Telegram NOT connected — set it up on <a href="/settings">Settings</a>. ` +
+        `(Events are still logged here.)`;
+    const fmt = iso => new Date(iso).toLocaleString("en-GB",
+        { timeZone: "Asia/Kolkata", day: "2-digit", month: "short",
+          hour: "2-digit", minute: "2-digit" });
+    $("body").innerHTML = log.map(a =>
+      `<tr><td class="muted">${fmt(a.at)}</td>
+       <td style="text-align:left">${a.live ? "live" : "close"}</td>
+       <td style="text-align:left">${a.text}</td>
+       <td>${a.sent ? "✓" : "—"}</td></tr>`).join("")
+      || `<tr><td colspan="4" class="muted" style="padding:24px;text-align:center">No alerts yet — they start with the next market event.</td></tr>`;
+    $("mcards").innerHTML = log.map(a =>
+      `<div class="mcard"><div class="r2" style="margin:0">
+        <span style="flex:1 1 100%">${a.text}</span>
+        <span class="muted">${fmt(a.at)} · ${a.live ? "live" : "close"} · ${a.sent ? "sent ✓" : "not sent"}</span>
+       </div></div>`).join("")
+      || `<div class="muted" style="padding:20px;text-align:center">No alerts yet.</div>`;
+  }
+  load();
+  setInterval(load, 60 * 1000);
+})();
+</script>
+{% endblock %}

@@ -31,7 +31,7 @@ import datetime as dt
 
 import pandas as pd
 
-from pinescan import io_safe, study
+from pinescan import io_safe, notify, study
 from pinescan.backtest.rules.registry import load_policy
 from pinescan.backtest import engine, events, metrics
 from pinescan.scanners import registry
@@ -72,7 +72,8 @@ def _keys_present():
 
     dhan = have("DHAN_CLIENT_ID") and have("DHAN_ACCESS_TOKEN")
     dhan_auto = have("DHAN_CLIENT_ID") and have("DHAN_PIN") and have("DHAN_TOTP_SECRET")
-    return {"polygon": poly, "dhan": dhan, "dhan_auto": dhan_auto}
+    return {"polygon": poly, "dhan": dhan, "dhan_auto": dhan_auto,
+            "telegram": notify.configured()}
 
 
 def data_status(market):
@@ -407,8 +408,9 @@ def refresh_market(market, on_progress=None):
     _say("Scanning the universe …")
     try:
         os.makedirs("data/results", exist_ok=True)
-        io_safe.atomic_write_text(_scan_path(market, "nsv2"),
-                                  json.dumps(scan_market(market), allow_nan=False))
+        scan = scan_market(market)
+        io_safe.atomic_write_text(_scan_path(market, "nsv2"), json.dumps(scan, allow_nan=False))
+        notify.process_scan_alerts(scan, market, live=False)   # ✅ confirms + 🎯/🛑 hits + EOD summary
     except Exception:
         pass
     _say("Updating the forward test …")
@@ -431,6 +433,7 @@ def intraday_tick(market="india", scanner="nsv2"):
     scan = scan_market(market, scanner, live=True)
     os.makedirs("data/results", exist_ok=True)
     io_safe.atomic_write_text(_scan_path(market, scanner), json.dumps(scan, allow_nan=False))
+    notify.process_scan_alerts(scan, market, live=True)   # silent no-op without Telegram creds
     return {"ok": True,
             "msg": f"Live scan: {scan['live_partials']} live bars, "
                    f"{scan['actionable_count']} actionable of {scan['setups_total']} setups."}

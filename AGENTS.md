@@ -22,7 +22,7 @@ The phased master plan lives with the owner's Claude Code sessions
 | 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | done (2026-07-05); formal close after first unattended 08:30 mint (2026-07-06) |
 | 2 | KWM dashboard: per-trade taxonomy, Scanner/Active/Target Hits/Stop Hits/Glossary tabs, mobile cards, SEBI disclaimer | done (2026-07-05, 3 iterations); Forward page facelift deferred to automation phase |
 | 3 | Market-hours scanning: 15-min live ticks 09:00–15:45 IST (in-memory partial bar, PROV badge), close run moved to 15:55 | in progress (2026-07-05) — first live-market validation Mon 2026-07-06 |
-| 4 | Telegram alerts | pending |
+| 4 | Telegram alerts: batched per-run messages via pinescan/notify.py (rides the scan jobs), Alerts tab, .telegram creds via Settings | in progress (2026-07-05) |
 | 5 | Short daily strategy port (parity-gated) + Long/Short toggle | pending |
 | 6 | Forward-test weekly/monthly/yearly views + trade rating | pending |
 | 7 | US market rollout | pending |
@@ -92,9 +92,9 @@ The phased master plan lives with the owner's Claude Code sessions
 
 ## Hard invariants
 
-1. **Never commit secrets.** `.polygon_key`, `.dhan_creds` (contains Dhan PIN + TOTP seed) are
-   git-ignored and must stay that way. The repo is currently PUBLIC. Collaborators: the owner
-   (krishbahri93) and his infra partner (MammenK) — coordinate, don't clobber.
+1. **Never commit secrets.** `.polygon_key`, `.dhan_creds` (contains Dhan PIN + TOTP seed) and
+   `.telegram` (bot token) are git-ignored and must stay that way. The repo is currently PUBLIC.
+   Collaborators: the owner (krishbahri93) and his infra partner (MammenK) — coordinate, don't clobber.
 2. **Never delete `data/forward/`** — the paper-trading track record is not regenerable.
 3. **Never commit directly to `main`.** Branch per phase/change; the owner approves merges and
    pushes. Do not push/merge/delete branches without his explicit OK.

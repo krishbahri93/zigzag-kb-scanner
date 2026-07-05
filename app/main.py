@@ -21,7 +21,7 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from pinescan import service
+from pinescan import notify, service
 from pinescan.scanners import registry
 from app.jobs import Jobs
 
@@ -121,10 +121,17 @@ def _mint_dhan_token(prog):
     return {"ok": False, "msg": f"Dhan token mint failed: {err[-1][:140] if err else 'unknown error'}"}
 
 
+def _connect_telegram(prog):
+    """Find the bot's chat (group/DM) from its recent messages, save it, send a hello."""
+    prog("Looking for the bot's chat on Telegram …")
+    return notify.detect_chat_id()
+
+
 @app.post("/settings/keys")
 def save_keys(market: str = Form("us"), polygon_key: str = Form(""),
               dhan_client_id: str = Form(""), dhan_token: str = Form(""),
-              dhan_pin: str = Form(""), dhan_totp_secret: str = Form("")):
+              dhan_pin: str = Form(""), dhan_totp_secret: str = Form(""),
+              telegram_token: str = Form(""), telegram_chat_id: str = Form("")):
     if polygon_key.strip():
         service.write_polygon_key(polygon_key)
     if any(v.strip() for v in (dhan_client_id, dhan_token, dhan_pin, dhan_totp_secret)):
@@ -133,7 +140,27 @@ def save_keys(market: str = Form("us"), polygon_key: str = Form(""),
         # in the status strip), so the user immediately learns whether the secrets work
         if service.data_status("india")["keys"].get("dhan_auto"):
             jobs.start(_mint_dhan_token, label="Minting today's Dhan token …")
+    if telegram_token.strip() or telegram_chat_id.strip():
+        notify.write_creds(telegram_token, telegram_chat_id)
+        # token saved -> auto-detect the group chat + send a test message (visible in status strip)
+        jobs.start(_connect_telegram, label="Connecting Telegram …")
     return RedirectResponse(f"/settings?market={market}", status_code=303)
+
+
+@app.get("/alerts")
+def alerts_page(request: Request, market: str = "india"):
+    return templates.TemplateResponse(request, "alerts.html", _ctx(request, market, page="alerts"))
+
+
+@app.get("/api/alerts")
+def api_alerts():
+    """The sent-alerts log (newest last), for the Alerts tab."""
+    import json as _json
+    try:
+        log = _json.loads(open(notify.LOG_FILE, encoding="utf-8").read())
+    except Exception:
+        log = []
+    return JSONResponse({"alerts": log, "configured": notify.configured()})
 
 
 @app.post("/refresh")

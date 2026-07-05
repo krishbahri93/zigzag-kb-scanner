@@ -19,7 +19,13 @@
   <label>Client ID: <input type="text" name="dhan_client_id" size="20" placeholder="leave blank to keep current"></label><br>
   <label>MPIN: <input type="password" name="dhan_pin" size="12" placeholder="unchanged"></label><br>
   <label>TOTP secret: <input type="password" name="dhan_totp_secret" size="40" placeholder="unchanged &mdash; the code from Dhan's 2FA setup"></label><br>
-  <label>Access token (optional &mdash; auto-generated): <input type="password" name="dhan_token" size="60" placeholder="unchanged"></label><br><br>
+  <label>Access token (optional &mdash; auto-generated): <input type="password" name="dhan_token" size="60" placeholder="unchanged"></label><br>
+  <h3>Alerts &mdash; Telegram</h3>
+  <p class="muted">Create a bot with @BotFather, add it to your alerts group, send any message in
+    the group, then paste the bot token here &mdash; the chat connects automatically and you get a
+    test message. Status: {{ 'connected ✓' if data['keys']['telegram'] else 'NOT connected ✗' }}</p>
+  <label>Bot token: <input type="password" name="telegram_token" size="50" placeholder="unchanged &mdash; from @BotFather"></label><br>
+  <label>Chat ID (optional &mdash; auto-detected): <input type="text" name="telegram_chat_id" size="20" placeholder="unchanged"></label><br><br>
   <button type="submit">Save keys</button>
 </form>
 <p class="muted">After saving, click <b>Refresh data</b> (top bar) to fetch with your key. The first

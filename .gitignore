@@ -30,3 +30,6 @@ reports/forward/
 # server-side runtime files (never commit)
 .healthchecks
 .last_good
+
+# Telegram bot credentials (never commit)
+.telegram
