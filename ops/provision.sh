@@ -51,6 +51,8 @@ else
 fi
 
 echo "== python venv + install =="
+# run from APP_DIR: pip scans the CWD, and the ubuntu home dir is unreadable to the app user
+cd "$APP_DIR"
 [ -x "$APP_DIR/venv/bin/python" ] || sudo -u "$APP_USER" python3 -m venv "$APP_DIR/venv"
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet --upgrade pip
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install --quiet -e "$APP_DIR[india,app]"
