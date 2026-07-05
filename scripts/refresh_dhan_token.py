@@ -91,8 +91,11 @@ def main():
         if token:
             break
         last = resp
-        wait = 30 - (time.time() % 30) + 1
-        print(f"  attempt {attempt} failed ({str(last)[:80]}); retrying with the next code in {wait:.0f}s …")
+        if "every 2 minutes" in str(last):           # Dhan's mint cooldown — wait it out
+            wait = 125
+        else:                                        # boundary/replayed code — next TOTP window
+            wait = 30 - (time.time() % 30) + 1
+        print(f"  attempt {attempt} failed ({str(last)[:80]}); retrying in {wait:.0f}s …")
         time.sleep(wait)
     if not token:
         sys.exit(f"generate_token returned no recognizable access token after 3 attempts: {str(last)[:200]}")
