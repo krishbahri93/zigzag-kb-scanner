@@ -65,7 +65,7 @@ echo "== systemd units =="
 cp "$APP_DIR"/ops/systemd/*.service "$APP_DIR"/ops/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now pinescan-web.service
-systemctl enable --now pinescan-token.timer pinescan-close-india.timer
+systemctl enable --now pinescan-token.timer pinescan-close-india.timer pinescan-backup.timer
 
 echo "== dashboard logins =="
 touch /etc/caddy/users.caddy && chmod 640 /etc/caddy/users.caddy && chgrp caddy /etc/caddy/users.caddy

@@ -19,7 +19,7 @@ The phased master plan lives with the owner's Claude Code sessions
 | Phase | Deliverable | Status |
 |---|---|---|
 | 0 | Housekeeping: Pine sources committed, AGENTS.md + OWNER.md seeded | done (2026-07-05) |
-| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | next |
+| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | done (2026-07-05); pending: healthchecks.io wiring + first unattended 08:30 mint |
 | 2 | Rich dashboard merged into the FastAPI app | pending |
 | 3 | Market-hours scanning 09:15–15:45 IST, provisional/confirmed states | pending |
 | 4 | Telegram alerts | pending |
@@ -52,13 +52,42 @@ The phased master plan lives with the owner's Claude Code sessions
 - `index.html` — the OLD cloud dashboard (rich UI, dead data feed). Being merged into `app/` in
   Phase 2; treat as reference material, do not extend it in place.
 
+## The server (production)
+
+- **URL:** https://kwmscanner.com (Caddy basic-auth; users in /etc/caddy/users.caddy —
+  krish, mammen, kinny, vishnu, kambdi). `/healthz` is the only unauthenticated path.
+- **Box:** AWS Lightsail Mumbai 2GB, static IP 13.207.71.102, Ubuntu 24.04, TZ Asia/Kolkata.
+- **SSH:** `ssh -i ~/.ssh/kwm-scanner.pem ubuntu@13.207.71.102` (key on the owner's laptop
+  at ~/.ssh/kwm-scanner.pem — NEVER in the repo).
+- **Layout:** code+venv+secrets+data at /opt/pinescan (user `pinescan`); units in
+  /etc/systemd/system; Caddy config /etc/caddy/Caddyfile; backups /var/backups/pinescan.
+- **Timers:** pinescan-token 08:30 daily · pinescan-close-india 15:45 Mon-Fri ·
+  pinescan-backup 02:00 daily. Job outcomes land in data/status/last_runs.json.
+- **Gotcha:** raw.githubusercontent.com caches ~5 min — update the server via
+  `git fetch && git reset` (deploy.sh does this), never by re-curling raw files.
+
 ## One-command verbs
 
 - Tests: `python -m pytest tests/ -q`
 - Pine lint: `python -m pinescan.core lint <file.pine>`
 - Parity gate: `python -m pinescan.core parity --csv <golden.csv> --port <module>:run`
 - Local app: `start.bat` (Windows) → http://127.0.0.1:8000
-- Deploy: `scripts/deploy.sh` — DOES NOT EXIST YET (Phase 1). Until then there is no server.
+- Deploy (only path to prod): `ssh ... 'sudo /opt/pinescan/scripts/deploy.sh'` — deploys
+  origin/main, smoke-test gated, auto-rollback; `--rollback` returns to last good.
+- Server health: `ssh ... 'bash /opt/pinescan/ops/status.sh'`
+- Dashboard logins: `ssh ... 'sudo bash /opt/pinescan/ops/add_user.sh <name>'` (add/rotate),
+  `--remove <name>` (revoke).
+- Rebuild from scratch: run ops/provision.sh on a blank Ubuntu 24.04 box (idempotent).
+
+## Runbook (symptom → first command)
+
+| Symptom | Do |
+|---|---|
+| Dashboard down | `systemctl status pinescan-web caddy` → owner fallback: Lightsail Reboot button |
+| Token/scan job failed | `journalctl -u pinescan-token -n 50` / `-u pinescan-close-india`; also `data/forward/logs/<job>.log` |
+| Missed run suspicion | `data/status/last_runs.json` + `systemctl list-timers 'pinescan-*'` |
+| Bad deploy | `sudo /opt/pinescan/scripts/deploy.sh --rollback` |
+| Disk full | the price cache (data/cache/) is deletable — it re-downloads |
 
 ## Hard invariants
 

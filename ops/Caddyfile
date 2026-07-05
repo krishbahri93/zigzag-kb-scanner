@@ -4,10 +4,19 @@
 
 kwmscanner.com {
 	encode gzip
-	basic_auth {
-		import /etc/caddy/users.caddy
+
+	# /healthz is the ONLY unauthenticated path — a bare liveness probe for the uptime
+	# watchdog (returns {"ok":true} from the app, no data). Everything else needs a login.
+	handle /healthz {
+		reverse_proxy 127.0.0.1:8000
 	}
-	reverse_proxy 127.0.0.1:8000
+
+	handle {
+		basic_auth {
+			import /etc/caddy/users.caddy
+		}
+		reverse_proxy 127.0.0.1:8000
+	}
 }
 
 www.kwmscanner.com {

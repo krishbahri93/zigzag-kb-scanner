@@ -1,0 +1,7 @@
+[Unit]
+Description=Nightly backup of secrets + forward-test history (ops/backup.sh)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/pinescan/ops/backup.sh
+TimeoutStartSec=300

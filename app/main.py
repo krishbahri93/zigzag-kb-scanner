@@ -44,6 +44,13 @@ def home():
     return RedirectResponse("/scanner?market=india")
 
 
+@app.get("/healthz")
+def healthz():
+    """Bare liveness probe for the uptime watchdog — Caddy exposes ONLY this path without a
+    login, so it must never include data. 200 {"ok": true} = app process is serving."""
+    return JSONResponse({"ok": True})
+
+
 @app.get("/status")
 def status(market: str = "us"):
     return JSONResponse({"data": service.data_status(market), "job": jobs.status()})
