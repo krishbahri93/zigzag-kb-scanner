@@ -26,3 +26,7 @@ reports/forward/
 
 # local Dhan creds (never commit)
 .dhan_creds
+
+# server-side runtime files (never commit)
+.healthchecks
+.last_good

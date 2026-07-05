@@ -1,0 +1,15 @@
+# Caddy config for the scanner. Caddy obtains + renews the HTTPS certificate automatically.
+# Logins live in /etc/caddy/users.caddy ("<user> <bcrypt-hash>" per line) — manage them with
+# ops/add_user.sh; never edit hashes by hand.
+
+kwmscanner.com {
+	encode gzip
+	basic_auth {
+		import /etc/caddy/users.caddy
+	}
+	reverse_proxy 127.0.0.1:8000
+}
+
+www.kwmscanner.com {
+	redir https://kwmscanner.com{uri} permanent
+}

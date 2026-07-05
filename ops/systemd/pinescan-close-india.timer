@@ -1,0 +1,9 @@
+[Unit]
+Description=Mon-Fri 15:45 IST India close run (server TZ is Asia/Kolkata)
+
+[Timer]
+OnCalendar=Mon..Fri 15:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

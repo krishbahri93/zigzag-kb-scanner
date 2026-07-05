@@ -1,0 +1,11 @@
+[Unit]
+Description=Mint fresh 24h Dhan access token (headless TOTP; see scripts/refresh_dhan_token.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pinescan
+WorkingDirectory=/opt/pinescan
+ExecStart=/opt/pinescan/scripts/job_wrapper.sh token /opt/pinescan/venv/bin/python scripts/refresh_dhan_token.py
+TimeoutStartSec=600

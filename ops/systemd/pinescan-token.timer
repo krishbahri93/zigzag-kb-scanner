@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily 08:30 IST Dhan token refresh (server TZ is Asia/Kolkata)
+
+[Timer]
+OnCalendar=*-*-* 08:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
