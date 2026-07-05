@@ -291,10 +291,17 @@ def refresh_market(market, on_progress=None):
     else:
         if not india.ensure_dhan_creds():
             return {"ok": False, "msg": "No Dhan creds set — add them on Settings."}
-        _say("Refreshing India (Dhan) …")
         syms = [os.path.splitext(os.path.basename(f))[0]
                 for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
-        india.refresh_recent(syms, days=max(15, gap))
+        if not syms:
+            # brand-new install: nothing cached to top up, so seed the whole Nifty-500 first
+            # (resumable; same path as scripts/backfill_india.py)
+            _say("First India run — downloading the Nifty-500 history (10–30 min, resumable) …")
+            syms, _sectors = india.get_universe()
+            india.backfill(syms)
+        else:
+            _say("Refreshing India (Dhan) …")
+            india.refresh_recent(syms, days=max(15, gap))
     # Recompute + cache the scan and forward results so the pages serve them instantly.
     _say("Scanning the universe …")
     try:
