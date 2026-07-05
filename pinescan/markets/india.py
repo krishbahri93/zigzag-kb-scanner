@@ -294,9 +294,31 @@ def get_tf(symbol, tf):
 # Interface the scanner / backtester depend on (see markets/base.py)
 # ============================================================================
 
-def get_universe():
-    """(symbols, {symbol: sector}) for the NSE Nifty 500."""
-    return load_nifty500()
+_UNIVERSE_CACHE_FILE = "data/cache/india_universe.json"
+
+
+def get_universe(max_age_days=7):
+    """(symbols, {symbol: sector}) for the NSE Nifty 500 — disk-cached for max_age_days.
+    NSE archives is slow and sometimes blocks cloud IPs, so scans must never depend on it
+    being reachable; the constituent list barely changes week to week."""
+    import json
+    import time
+    try:
+        if (time.time() - os.stat(_UNIVERSE_CACHE_FILE).st_mtime) < max_age_days * 86400:
+            d = json.loads(open(_UNIVERSE_CACHE_FILE, encoding="utf-8").read())
+            if d.get("symbols"):
+                return d["symbols"], d.get("sectors", {})
+    except Exception:
+        pass
+    syms, sectors = load_nifty500()
+    if sectors:                                   # never cache the 20-stock fallback
+        try:
+            os.makedirs(os.path.dirname(_UNIVERSE_CACHE_FILE), exist_ok=True)
+            io_safe.atomic_write_text(_UNIVERSE_CACHE_FILE,
+                                      json.dumps({"symbols": syms, "sectors": sectors}))
+        except Exception:
+            pass
+    return syms, sectors
 
 
 def get_daily(symbol):

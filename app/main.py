@@ -31,10 +31,10 @@ jobs = Jobs()
 MARKETS = ["us", "india"]
 
 
-def _ctx(request, market):
+def _ctx(request, market, page=""):
     """The context every page needs: the status strip (data freshness, keys, current job) + the
-    market list + the registered scanners."""
-    return {"request": request, "markets": MARKETS, "market": market,
+    market list + the registered scanners + which nav tab is active."""
+    return {"request": request, "markets": MARKETS, "market": market, "page": page,
             "data": service.data_status(market), "job": jobs.status(),
             "scanners": registry.list_scanners()}
 
@@ -42,6 +42,15 @@ def _ctx(request, market):
 @app.get("/")
 def home():
     return RedirectResponse("/scanner?market=india")
+
+
+@app.get("/api/scan")
+def api_scan(market: str = "india", scanner: str = "nsv2"):
+    """Everything the dashboard needs in one call: the cached scan (instant — no re-scan),
+    data freshness, and the current background-job state."""
+    return JSONResponse({"scan": service.read_scan(market, scanner),
+                         "data": service.data_status(market),
+                         "job": jobs.status()})
 
 
 @app.get("/healthz")
@@ -57,23 +66,23 @@ def status(market: str = "us"):
 
 
 @app.get("/scanner")
-def scanner_page(request: Request, market: str = "us", scanner: str = "nsv2"):
-    ctx = _ctx(request, market)
+def scanner_page(request: Request, market: str = "india", scanner: str = "nsv2"):
+    ctx = _ctx(request, market, page="scanner")
     ctx["scanner"] = scanner
     ctx["scan"] = service.read_scan(market, scanner)   # cached (fast); None until the first Refresh
     return templates.TemplateResponse(request, "scanner.html", ctx)
 
 
 @app.get("/forward")
-def forward_page(request: Request, market: str = "us"):
-    ctx = _ctx(request, market)
+def forward_page(request: Request, market: str = "india"):
+    ctx = _ctx(request, market, page="forward")
     ctx["fwd"] = service.read_forward(market)          # cached (fast); None until the first Refresh
     return templates.TemplateResponse(request, "forward.html", ctx)
 
 
 @app.get("/settings")
-def settings_page(request: Request, market: str = "us"):
-    return templates.TemplateResponse(request, "settings.html", _ctx(request, market))
+def settings_page(request: Request, market: str = "india"):
+    return templates.TemplateResponse(request, "settings.html", _ctx(request, market, page="settings"))
 
 
 def _mint_dhan_token(prog):

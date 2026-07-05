@@ -1,36 +1,270 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Scanner &mdash; {{ market|upper }}</h1>
-<form method="get" action="/scanner" class="muted">
-  <input type="hidden" name="market" value="{{ market }}">
-  Scanner:
-  <select name="scanner" onchange="this.form.submit()">
-    {% for s in scanners %}<option value="{{ s }}"{% if s == scanner %} selected{% endif %}>{{ s }}</option>{% endfor %}
+<style>
+  .meta { font-size:12.5px; color:var(--muted); margin:2px 0 12px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin:0 0 14px; }
+  .kcard { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+           cursor:pointer; box-shadow:var(--shadow); }
+  .kcard .lbl { font-size:11px; letter-spacing:.6px; color:var(--muted); text-transform:uppercase; }
+  .kcard .val { font-size:24px; font-weight:700; margin-top:2px; }
+  .kcard.on { outline:2px solid var(--accent); }
+  .kcard.v-trig .val { color:var(--accent-deep); }
+  .kcard.v-zone .val { color:var(--blue); }
+  .kcard.v-appr .val { color:var(--amber); }
+  .kcard.v-vol  .val { color:var(--orange); }
+  .kcard.v-fresh .val { color:var(--accent); }
+
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .toolbar input[type=text] { min-width:190px; flex:1 1 190px; }
+  .tbl-wrap { overflow-x:auto; background:var(--card); border:1px solid var(--border); border-radius:12px;
+              box-shadow:var(--shadow); }
+  table.scan { border:none; margin:0; min-width:1020px; }
+  table.scan th, table.scan td { border:none; border-bottom:1px solid var(--border); white-space:nowrap; }
+  table.scan th { position:sticky; top:0; cursor:pointer; user-select:none; background:var(--card); }
+  table.scan th .arr { color:var(--accent-deep); }
+  table.scan tr.datarow:hover td { background:var(--accent-soft); }
+  .sym { font-weight:700; text-decoration:none; }
+  .sym:hover { color:var(--accent-deep); text-decoration:underline; }
+  .badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; }
+  .b-trig { background:var(--accent-soft); color:var(--accent-deep); }
+  .b-zone { background:var(--blue-soft); color:var(--blue); }
+  .b-appr { background:var(--orange-soft); color:var(--amber); }
+  .b-fresh { background:var(--accent); color:#fff; margin-left:5px; }
+  .volx { color:var(--orange); font-weight:700; }
+  .detail td { background:var(--bg) !important; white-space:normal; }
+  .swings { display:flex; flex-wrap:wrap; gap:10px; padding:4px 0; }
+  .swing { border:1px solid var(--border); border-radius:10px; padding:8px 12px; background:var(--card);
+           font-size:12.5px; min-width:210px; }
+  .swing b { color:var(--accent-deep); }
+  details.gloss { margin-top:18px; background:var(--card); border:1px solid var(--border);
+                  border-radius:12px; padding:12px 16px; }
+  details.gloss summary { cursor:pointer; font-weight:700; }
+  details.gloss dt { font-weight:700; margin-top:10px; }
+  details.gloss dd { margin:2px 0 0 0; color:var(--muted); }
+  .foot { font-size:12px; color:var(--muted); margin:16px 0; }
+</style>
+
+<div class="meta" id="meta">Loading scan …</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="toolbar">
+  <select id="fSector"><option value="">All sectors</option></select>
+  <select id="fSignal">
+    <option value="">All signals</option>
+    <option>Triggered</option><option>In Zone</option><option>Approaching</option>
   </select>
-</form>
-{% if error %}
-  <p class="err">{{ error }}</p>
-{% elif not scan %}
-  <p class="muted">No data yet &mdash; add your key on <a href="/settings?market={{ market }}">Settings</a> and click <b>Refresh data</b>.</p>
-{% else %}
-  <p class="muted">Data as of {{ scan.data_asof or 'n/a' }} &middot; scanned {{ scan.scanned_ok }} symbols &middot;
-     <b>{{ scan.actionable_count }}</b> actionable of {{ scan.setups_total }} setups.</p>
-  <table>
-    <tr><th>Ticker</th><th>State</th><th>Swing</th><th>LTP</th><th>Entry band</th><th>Target band</th><th>Stop</th></tr>
-    {% for r in scan.rows if (r.in_band or r.approaching or r.fired_entry) and not r.expired %}
-      {% set sw = (r.swings | selectattr('swing', 'equalto', r.active) | first) if r.active else (r.swings | first) %}
-      <tr>
-        <td>{{ r.sym }}</td>
-        <td>{% if r.in_band %}IN-BAND{% elif r.approaching %}approaching{% else %}entry fired{% endif %}</td>
-        <td>{{ r.active or '-' }}</td>
-        <td>{{ r.ltp }}</td>
-        <td>{% if sw %}{{ sw.entry_lo }} &ndash; {{ sw.entry_hi }}{% endif %}</td>
-        <td>{% if sw %}{{ sw.tp_lo }} &ndash; {{ sw.tp_hi }}{% endif %}</td>
-        <td>{% if sw %}{{ sw.sl }}{% endif %}</td>
-      </tr>
-    {% endfor %}
-  </table>
-  <p class="muted">These are the V2 buy setups currently in or near their entry band &mdash; enter
-    manually at your own discretion. Informational only, not financial advice.</p>
-{% endif %}
+  <input type="text" id="fQ" placeholder="Search symbol…">
+  <button class="btn" id="bVol">⚡ Vol spikes</button>
+  <button class="btn" id="bCopy">⎘ Copy for TradingView</button>
+  <button class="btn" id="bTxt">⬇ Download TXT</button>
+</div>
+
+<div class="tbl-wrap"><table class="scan">
+  <thead><tr id="head"></tr></thead>
+  <tbody id="body"></tbody>
+</table></div>
+
+<details class="gloss">
+  <summary>Glossary — how to read this screen</summary>
+  <dl>
+    <dt>The strategy (Nested Swings V2, long only)</dt>
+    <dd>A sharp decline (A→B) that starts recovering creates up to four nested buy setups (T1–T4).
+        Entry is a Fibonacci band above the common low B; the target and stop are fixed bands from
+        the same geometry. This page shows every stock currently at or near its entry band.</dd>
+    <dt>Signal: In Zone</dt><dd>Price is inside the entry band right now — the actionable moment.</dd>
+    <dt>Signal: Approaching</dt><dd>Price is within ~3% below the entry band, climbing toward it.</dd>
+    <dt>Signal: Triggered</dt><dd>The entry has fired per the system (close above the band) — the trade is considered live.</dd>
+    <dt>FRESH</dt><dd>This setup became actionable on the latest scan — it wasn't there before.</dd>
+    <dt>Entry band / Target band / Stop</dt><dd>Exact price zones from the strategy: where to enter,
+        where profit is taken, and where the idea is invalidated.</dd>
+    <dt>Day %</dt><dd>Today's move vs the previous close.</dd>
+    <dt>Vol ×</dt><dd>Today's volume as a multiple of the 20-day average. <b>⚡ ≥ 2×</b> marks a
+        volume spike — unusual participation worth attention.</dd>
+    <dt>R:R</dt><dd>Reward-to-risk: distance to target vs distance to stop, from the worst entry.
+        Higher is better; it's the default sort.</dd>
+    <dt>To entry %</dt><dd>How far price must climb to reach the entry band (negative = already at/above the band's low).</dd>
+    <dt>Confirmed</dt><dd>How long ago this setup first became actionable.</dd>
+  </dl>
+</details>
+
+<p class="foot">Informational only — not financial advice. Entries are placed manually at your own discretion.</p>
+
+<script>
+(function () {
+  const MARKET = "{{ market }}";
+  const TV = s => MARKET === "india"
+      ? "https://www.tradingview.com/chart/?symbol=NSE:" + encodeURIComponent(s)
+      : "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(s);
+  const TVSYM = s => MARKET === "india" ? "NSE:" + s : s;
+
+  const COLS = [
+    { k: "sym",          t: "Symbol",      num: false },
+    { k: "sector",       t: "Sector",      num: false },
+    { k: "_sig",         t: "Signal",      num: false },
+    { k: "ltp",          t: "CMP",         num: true  },
+    { k: "day_pct",      t: "Day %",       num: true  },
+    { k: "_entry",       t: "Entry band",  num: true  },
+    { k: "_tp",          t: "Target band", num: true  },
+    { k: "_sl",          t: "Stop",        num: true  },
+    { k: "vol_x",        t: "Vol ×",       num: true  },
+    { k: "rr",           t: "R:R",         num: true  },
+    { k: "dist_pct",     t: "To entry %",  num: true  },
+    { k: "confirmed_at", t: "Confirmed",   num: false },
+  ];
+  let rows = [], sortK = "rr", sortDir = -1, expanded = null;
+  const F = { sector: "", signal: "", q: "", vol: false };
+  const $ = id => document.getElementById(id);
+
+  const sig = r => (r.fired_entry || r.active_state === "IN") ? "Triggered"
+                 : r.in_band ? "In Zone" : r.approaching ? "Approaching" : "Forming";
+  const act = r => !r.expired && sig(r) !== "Forming";
+  const active = r => (r.swings || []).find(s => s.swing === r.active) || null;
+  const nf = (x, d = 2) => (x === null || x === undefined) ? "—"
+      : Number(x).toLocaleString("en-IN", { maximumFractionDigits: d });
+  const band = (lo, hi) => (lo == null) ? "—" : nf(lo) + " – " + nf(hi);
+  const rel = iso => {
+    if (!iso) return "—";
+    const m = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
+    return m < 60 ? Math.round(m) + "m ago"
+         : m < 60 * 36 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
+  };
+  const val = (r, k) => {
+    const a = active(r);
+    if (k === "_sig")   return sig(r);
+    if (k === "_entry") return a ? a.entry_lo : null;
+    if (k === "_tp")    return a ? a.tp_lo : null;
+    if (k === "_sl")    return a ? a.sl : null;
+    return r[k];
+  };
+
+  function filtered() {
+    return rows.filter(act).filter(r =>
+      (!F.sector || r.sector === F.sector) &&
+      (!F.signal || sig(r) === F.signal) &&
+      (!F.q || r.sym.toUpperCase().includes(F.q.toUpperCase())) &&
+      (!F.vol || (r.vol_x !== null && r.vol_x >= 2)));
+  }
+
+  function render() {
+    const rs = filtered().slice().sort((a, b) => {
+      const x = val(a, sortK), y = val(b, sortK);
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+    });
+
+    // cards
+    const all = rows.filter(act);
+    const C = [
+      ["Setups",        all.length,                                          "",            ""       ],
+      ["Triggered",     all.filter(r => sig(r) === "Triggered").length,      "Triggered",   "v-trig" ],
+      ["In Zone",       all.filter(r => sig(r) === "In Zone").length,        "In Zone",     "v-zone" ],
+      ["Approaching",   all.filter(r => sig(r) === "Approaching").length,    "Approaching", "v-appr" ],
+      ["⚡ Vol spikes",  all.filter(r => r.vol_x !== null && r.vol_x >= 2).length, "VOL",    "v-vol"  ],
+      ["Fresh today",   all.filter(r => r.fresh).length,                     "",            "v-fresh"],
+    ];
+    $("cards").innerHTML = C.map(c =>
+      `<div class="kcard ${c[3]} ${(c[2] === "VOL" ? F.vol : (c[2] && c[2] === F.signal)) ? "on" : ""}"
+            data-f="${c[2]}"><div class="lbl">${c[0]}</div><div class="val">${c[1]}</div></div>`).join("");
+    document.querySelectorAll(".kcard").forEach(el => el.onclick = () => {
+      const f = el.dataset.f;
+      if (f === "VOL") F.vol = !F.vol;
+      else if (f) F.signal = (F.signal === f) ? "" : f;
+      else { F.signal = ""; F.vol = false; }
+      $("fSignal").value = F.signal;
+      render();
+    });
+
+    // header
+    $("head").innerHTML = COLS.map(c =>
+      `<th data-k="${c.k}">${c.t} ${sortK === c.k ? `<span class="arr">${sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`
+    ).join("") + "<th></th>";
+    document.querySelectorAll("#head th[data-k]").forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = -1; }
+      render();
+    });
+
+    // rows
+    $("body").innerHTML = rs.map((r, i) => {
+      const a = active(r), s = sig(r);
+      const cls = s === "Triggered" ? "b-trig" : s === "In Zone" ? "b-zone" : "b-appr";
+      const dp = r.day_pct;
+      return `<tr class="datarow" data-i="${i}">
+        <td><a class="sym" target="_blank" rel="noopener" href="${TV(r.sym)}">${r.sym}</a></td>
+        <td style="text-align:left">${r.sector || "—"}</td>
+        <td style="text-align:left"><span class="badge ${cls}">${s}</span>${r.fresh ? '<span class="badge b-fresh">FRESH</span>' : ""}</td>
+        <td>${nf(r.ltp)}</td>
+        <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + nf(dp) + "%"}</td>
+        <td>${a ? band(a.entry_lo, a.entry_hi) : "—"}</td>
+        <td>${a ? band(a.tp_lo, a.tp_hi) : "—"}</td>
+        <td>${a ? nf(a.sl) : "—"}</td>
+        <td>${(r.vol_x === null || r.vol_x === undefined) ? "—" : (r.vol_x >= 2 ? `<span class="volx">⚡ ${nf(r.vol_x, 1)}×</span>` : nf(r.vol_x, 1) + "×")}</td>
+        <td>${nf(r.rr)}</td>
+        <td>${(r.dist_pct === null || r.dist_pct === undefined) ? "—" : nf(r.dist_pct) + "%"}</td>
+        <td class="muted">${rel(r.confirmed_at)}</td>
+        <td class="muted">▸</td>
+      </tr>` + (expanded === r.sym ? detailRow(r) : "");
+    }).join("") || `<tr><td colspan="13" class="muted" style="padding:24px;text-align:center">No setups match the current filters.</td></tr>`;
+
+    document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
+      if (e.target.closest("a")) return;                      // let symbol links work
+      const r = rs[Number(tr.dataset.i)];
+      expanded = (expanded === r.sym) ? null : r.sym;
+      render();
+    });
+
+    window._filteredSyms = rs.map(r => r.sym);
+  }
+
+  function detailRow(r) {
+    const sw = (r.swings || []).map(s =>
+      `<div class="swing"><b>${s.swing}</b> · state ${s.state} · depth ${nf(s.depth_pct, 1)}%<br>
+       A ${nf(s.A)} · Entry ${band(s.entry_lo, s.entry_hi)}<br>
+       Target ${band(s.tp_lo, s.tp_hi)} · Stop ${nf(s.sl)}</div>`).join("");
+    return `<tr class="detail"><td colspan="13">
+      <div class="swings">${sw}</div>
+      <div class="muted" style="font-size:12px">B (common low): ${nf(r.B)} · active swing: ${r.active || "—"} ·
+        data as of ${r.asof}</div></td></tr>`;
+  }
+
+  // toolbar
+  $("fSector").onchange = e => { F.sector = e.target.value; render(); };
+  $("fSignal").onchange = e => { F.signal = e.target.value; render(); };
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+  $("bVol").onclick = () => { F.vol = !F.vol; render(); };
+  $("bCopy").onclick = async () => {
+    const syms = window._filteredSyms || [];
+    const txt = syms.map(TVSYM).join(",");
+    try { await navigator.clipboard.writeText(txt); $("bCopy").textContent = "✓ Copied " + syms.length; }
+    catch (e) { prompt("Copy this:", txt); }
+    setTimeout(() => { $("bCopy").textContent = "⎘ Copy for TradingView"; }, 2500);
+  };
+  $("bTxt").onclick = () => {
+    const txt = (window._filteredSyms || []).map(TVSYM).join(",");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" }));
+    a.download = "kwm_watchlist_" + new Date().toISOString().slice(0, 10) + ".txt";
+    a.click();
+  };
+
+  async function load() {
+    let res;
+    try { res = await (await fetch(`/api/scan?market=${MARKET}`)).json(); }
+    catch (e) { $("meta").textContent = "Could not load the scan — check the connection and refresh."; return; }
+    const scan = res.scan;
+    if (!scan) { $("meta").textContent = "No scan yet — press Refresh to run the first one."; return; }
+    rows = scan.rows || [];
+    $("meta").textContent = `Data as of ${scan.data_asof} · scanned ${scan.scanned_ok} of ${scan.universe_size}` +
+      ` symbols · ${scan.actionable_count} actionable of ${scan.setups_total} setups`;
+    const sectors = [...new Set(rows.filter(act).map(r => r.sector).filter(Boolean))].sort();
+    $("fSector").innerHTML = '<option value="">All sectors</option>' +
+      sectors.map(s => `<option${s === F.sector ? " selected" : ""}>${s}</option>`).join("");
+    render();
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);      // re-pull the cached scan every 5 min
+})();
+</script>
 {% endblock %}

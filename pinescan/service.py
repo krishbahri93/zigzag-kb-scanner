@@ -110,12 +110,80 @@ def _universe_cache(market):
     return syms, cache
 
 
+def _enrich_row(r, df, sector):
+    """Add the display fields the dashboard shows (sector, day %, volume multiple, R:R,
+    distance-to-entry). Pure derivation from data already in hand; never raises — a missing
+    field renders as '—', it must not sink the scan."""
+    r["sector"] = sector or ""
+    try:
+        c = df["Close"]
+        r["day_pct"] = round(float(c.iloc[-1] / c.iloc[-2] - 1.0) * 100, 2) if len(c) >= 2 else None
+    except Exception:
+        r["day_pct"] = None
+    try:
+        avg = float(df["Volume"].tail(20).mean())
+        r["vol_x"] = round(float(df["Volume"].iloc[-1]) / avg, 2) if avg > 0 else None
+    except Exception:
+        r["vol_x"] = None
+    r["rr"] = r["dist_pct"] = None
+    act = next((s for s in r.get("swings", []) if s.get("swing") == r.get("active")), None)
+    if act:
+        try:
+            risk = act["entry_hi"] - act["sl"]           # worst entry vs stop
+            if risk > 0:
+                r["rr"] = round((act["tp_lo"] - act["entry_hi"]) / risk, 2)
+            if r.get("ltp"):
+                # +ve: price must still climb to reach the band; ~0/-ve: at or above band-low
+                r["dist_pct"] = round((act["entry_lo"] / r["ltp"] - 1.0) * 100, 2)
+        except Exception:
+            pass
+
+
+_SIGNAL_STATE = "data/status/signal_state.json"
+
+
+def _stamp_confirmed(market, scanner, rows):
+    """Persist the FIRST time each (sym, swing) was seen actionable, so the dashboard can show
+    'confirmed X ago' and flag FRESH entries — survives restarts and re-scans. Keys that are no
+    longer actionable are dropped, so a setup that resets later counts as fresh again."""
+    try:
+        seen = json.loads(open(_SIGNAL_STATE, encoding="utf-8").read())
+    except Exception:
+        seen = {}
+    now = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    prefix = f"{market}:{scanner}:"
+    live = set()
+    for r in rows:
+        actionable = (r.get("in_band") or r.get("fired_entry")
+                      or r.get("active_state") == "IN") and not r.get("expired")
+        if not actionable:
+            continue
+        k = f"{prefix}{r['sym']}:{r.get('active')}"
+        live.add(k)
+        if k not in seen:
+            seen[k] = now
+        r["confirmed_at"] = seen[k]
+        r["fresh"] = seen[k] == now
+    seen = {k: v for k, v in seen.items() if (not k.startswith(prefix)) or k in live}
+    try:
+        os.makedirs(os.path.dirname(_SIGNAL_STATE), exist_ok=True)
+        io_safe.atomic_write_text(_SIGNAL_STATE, json.dumps(seen))
+    except Exception:
+        pass
+
+
 def scan_market(market, scanner="nsv2"):
     """Run a scanner over a market's cached universe → the flat scan dict (same shape scan.py wrote).
     Reuses the registry scanner's scan_symbol + min_bars + default_params, so a new scanner works
     here with no change."""
     sc = registry.get(scanner)
     syms, cache = _universe_cache(market)
+    sectors = {}
+    if market == "india":
+        try:
+            _, sectors = india.get_universe()      # disk-cached weekly; {} if unavailable
+        except Exception:
+            sectors = {}
     rows, scanned, asof_dates = [], 0, set()
     for s in syms:
         df = cache.get(s)
@@ -127,11 +195,13 @@ def scan_market(market, scanner="nsv2"):
             continue
         scanned += 1
         if r is not None:
+            _enrich_row(r, df, sectors.get(s))
             rows.append(r)
             asof_dates.add(r["asof"])
     rows.sort(key=lambda r: (not r["in_band"], not r["approaching"], -(r["n_swings"])))
     actionable = [r for r in rows if (r["in_band"] or r["approaching"] or r["fired_entry"])
                   and not r["expired"]]
+    _stamp_confirmed(market, scanner, rows)
     return {
         "engine": f"{sc.name} ({sc.display}, faithful port)",
         "generated_for_date": str(pd.Timestamp.now(tz="America/New_York").date()),

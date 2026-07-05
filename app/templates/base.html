@@ -3,54 +3,124 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ZigZag Scanner (local)</title>
+<title>KWM Auto Screener</title>
+<script>
+  // set the theme BEFORE first paint (no flash). Light is the default.
+  document.documentElement.dataset.theme = localStorage.getItem("kwm-theme") || "light";
+</script>
 <style>
-  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 0; color: #1a1a1a; }
-  header { background: #0f172a; color: #e2e8f0; padding: 8px 16px; }
-  header nav a { color: #e2e8f0; text-decoration: none; margin-right: 16px; font-weight: 600; }
-  header nav a:hover { text-decoration: underline; }
-  .strip { font-size: 13px; margin-top: 6px; color: #cbd5e1; }
-  .strip a { color: #93c5fd; text-decoration: none; margin: 0 3px; }
-  .strip form { display: inline; margin-left: 8px; }
-  main { padding: 16px; max-width: 1100px; }
-  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 22px; } h3 { font-size: 14px; margin: 14px 0 4px; }
-  table { border-collapse: collapse; font-size: 13px; margin: 6px 0; }
-  th, td { border: 1px solid #e2e8f0; padding: 3px 8px; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
-  th { background: #f1f5f9; }
-  tr.bench td { color: #64748b; font-style: italic; }
-  .pos { color: #15803d; } .neg { color: #b91c1c; }
-  .err { color: #b91c1c; } .muted { color: #64748b; }
-  input, select, button { font-size: 13px; }
+  :root {
+    --bg:#f6f8fa; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0;
+    --accent:#10b981; --accent-deep:#059669; --accent-soft:#ecfdf5;
+    --orange:#f97316; --orange-soft:#fff7ed; --amber:#f59e0b; --red:#ef4444;
+    --blue:#0ea5e9; --blue-soft:#f0f9ff; --shadow:0 1px 3px rgba(15,23,42,.07);
+  }
+  [data-theme="dark"] {
+    --bg:#0b1220; --card:#121b2e; --text:#e2e8f0; --muted:#8fa3bd; --border:#1f2c45;
+    --accent-soft:#0c2b22; --orange-soft:#2b1a0c; --blue-soft:#0c2233;
+    --shadow:0 1px 3px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; margin:0;
+         background:var(--bg); color:var(--text); }
+  a { color:inherit; }
+
+  /* ---------- masthead ---------- */
+  header { background:var(--card); border-bottom:1px solid var(--border); box-shadow:var(--shadow);
+           position:sticky; top:0; z-index:20; }
+  .mast { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; flex-wrap:wrap;
+          align-items:center; gap:10px 14px; }
+  .brand { display:flex; align-items:baseline; gap:8px; margin-right:auto; text-decoration:none; }
+  .brand .mark { color:var(--accent); font-size:18px; }
+  .brand b { font-size:18px; letter-spacing:.2px; }
+  .brand small { color:var(--muted); font-size:12px; }
+  .live { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  .live .dot { width:8px; height:8px; border-radius:50%; background:var(--accent);
+               box-shadow:0 0 0 3px var(--accent-soft); }
+  .live .dot.busy { background:var(--amber); }
+  .clock { font-variant-numeric:tabular-nums; font-size:13px; color:var(--muted); }
+  .btn { border:1px solid var(--border); background:var(--card); color:var(--text);
+         border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .btn:hover { border-color:var(--accent); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .btn.primary:hover { background:var(--accent-deep); }
+  .btn:disabled { opacity:.55; cursor:default; }
+
+  .navrow { max-width:1200px; margin:0 auto; padding:0 16px; display:flex; align-items:center; gap:4px; }
+  .tab { display:inline-block; padding:9px 14px; font-size:14px; font-weight:600; color:var(--muted);
+         text-decoration:none; border-bottom:2px solid transparent; }
+  .tab.on { color:var(--accent-deep); border-bottom-color:var(--accent); }
+  .tab:hover { color:var(--text); }
+  .mkt { margin-left:auto; display:flex; gap:6px; padding-bottom:6px; }
+  .chip { font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px;
+          border:1px solid var(--border); color:var(--muted); text-decoration:none; }
+  .chip.on { background:var(--accent-soft); color:var(--accent-deep); border-color:var(--accent); }
+  .jobmsg { font-size:12px; color:var(--muted); }
+
+  main { max-width:1200px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; } h2 { font-size:16px; margin-top:22px; } h3 { font-size:14px; margin:14px 0 4px; }
+
+  /* ---------- shared bits (tables on forward/settings keep working) ---------- */
+  table { border-collapse:collapse; font-size:13px; margin:6px 0; width:100%; background:var(--card); }
+  th, td { border:1px solid var(--border); padding:6px 9px; text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  th { background:var(--bg); color:var(--muted); font-weight:600; }
+  tr.bench td { color:var(--muted); font-style:italic; }
+  .pos { color:var(--accent-deep); } .neg { color:var(--red); }
+  .err { color:var(--red); } .muted { color:var(--muted); }
+  input, select, button { font-size:13px; }
+  input[type=text], input[type=password], select {
+    background:var(--card); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; padding:7px 10px; }
 </style>
 </head>
 <body>
 <header>
-  <nav>
-    <a href="/scanner?market={{ market }}">Scanner</a>
-    <a href="/forward?market={{ market }}">Forward test</a>
-    <a href="/settings?market={{ market }}">Settings</a>
-  </nav>
-  <div class="strip">
-    Market:
-    {% for m in markets %}<a href="?market={{ m }}"{% if m == market %} style="font-weight:700;color:#fff"{% endif %}>{{ m|upper }}</a>{% endfor %}
-    &nbsp;·&nbsp; Data: {{ data.last_date or 'none' }}{% if data.days_old is not none %} ({{ data.days_old }}d old){% endif %}
-    {# data['keys'] not data.keys — the bare attribute resolves to dict.keys(), the method #}
-    &nbsp;·&nbsp; Polygon {{ '✓' if data['keys']['polygon'] else '✗' }} · Dhan {{ '✓' if data['keys']['dhan'] else '✗' }}
-    &nbsp;·&nbsp; <span id="job">{{ job.msg }}</span>
-    <form method="post" action="/refresh">
+  <div class="mast">
+    <a class="brand" href="/scanner?market={{ market }}">
+      <span class="mark">◤</span><b>KWM <span style="font-weight:500">Auto Screener</span></b>
+      <small>Nested Swings V2 · by KB</small>
+    </a>
+    <span class="live"><span class="dot" id="livedot"></span><span id="livetxt">LIVE</span></span>
+    <span class="jobmsg" id="job">{{ job.msg }}</span>
+    <span class="clock" id="clock">--:--:--</span>
+    <form method="post" action="/refresh" style="margin:0">
       <input type="hidden" name="market" value="{{ market }}">
-      <button {% if job.running %}disabled{% endif %}>Refresh data</button>
+      <button class="btn primary" {% if job.running %}disabled{% endif %}>⟳ Refresh</button>
     </form>
+    <button class="btn" id="themeBtn" title="Light / dark">◐</button>
+  </div>
+  <div class="navrow">
+    <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
+    <a class="tab {% if page == 'forward' %}on{% endif %}" href="/forward?market={{ market }}">Forward test</a>
+    <a class="tab {% if page == 'settings' %}on{% endif %}" href="/settings?market={{ market }}">Settings</a>
+    <span class="mkt">
+      {% for m in markets %}<a class="chip {% if m == market %}on{% endif %}" href="?market={{ m }}">{{ m|upper }}</a>{% endfor %}
+    </span>
   </div>
 </header>
 <main>{% block content %}{% endblock %}</main>
 <script>
+  // theme toggle (persisted)
+  document.getElementById("themeBtn").onclick = () => {
+    const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = t;
+    localStorage.setItem("kwm-theme", t);
+  };
+  // IST clock
+  const fmtIST = new Intl.DateTimeFormat("en-GB",
+      { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  setInterval(() => {
+    document.getElementById("clock").textContent = fmtIST.format(new Date()) + " IST";
+  }, 1000);
+  // job status poll: message + busy dot; full reload when a background job finishes
   let wasRunning = {{ 'true' if job.running else 'false' }};
   setInterval(async () => {
     try {
       const s = await (await fetch('/status?market={{ market }}')).json();
       document.getElementById('job').textContent = s.job.msg;
+      document.getElementById('livedot').classList.toggle('busy', s.job.running);
+      document.getElementById('livetxt').textContent = s.job.running ? 'WORKING' : 'LIVE';
       if (wasRunning && !s.job.running) location.reload();
       wasRunning = s.job.running;
     } catch (e) {}
