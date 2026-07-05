@@ -48,6 +48,16 @@ echo "$CURRENT" > .last_good && chown "$APP_USER:$APP_USER" .last_good
 as_app git reset --hard origin/main
 install_if_needed "$CURRENT"
 
+# keep the OS-level config in lockstep with the checkout (units + Caddyfile drift bit us once)
+cp "$APP_DIR"/ops/systemd/*.service "$APP_DIR"/ops/systemd/*.timer /etc/systemd/system/
+systemctl daemon-reload
+if caddy validate --config "$APP_DIR/ops/Caddyfile" >/dev/null 2>&1; then
+    cp "$APP_DIR/ops/Caddyfile" /etc/caddy/Caddyfile
+    systemctl reload caddy
+else
+    echo "WARNING: ops/Caddyfile failed validation — kept the running Caddy config"
+fi
+
 if restart_and_smoke; then
     echo "== deploy OK: $CURRENT -> $(as_app git rev-parse --short HEAD) =="
 else
