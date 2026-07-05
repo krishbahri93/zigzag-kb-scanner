@@ -1,0 +1,521 @@
+//@version=6
+indicator("ZigZag KB Fib Dual Trade", "ZZ KB DT", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ============================================================================
+// ZigZag KB Fib Dual Trade
+// ============================================================================
+//
+// PURPOSE
+//   Two-stage Fibonacci trade automation built on TradingView's ZigZag library.
+//   One A→B down-swing generates TWO sequential trade opportunities.
+//
+// FIB LEVELS (measured from B upward, as fraction of A−B):
+//   0.236   — Trade 1 stop loss line
+//   0.32–0.382  — Trade 1 Entry Zone
+//   0.618–0.68  — Trade 1 TP Zone  /  Trade 2 Entry Zone  (dual-purpose)
+//                  (close below 0.618 = Trade 2 SL)
+//   1.0–1.05  — Trade 2 TP Zone (1.0 = A, 1.05 = 5% above A)
+//
+// TRADE 1
+//   Entry  : close > 0.382  +  close > EMA9 & EMA21  +  volume > 1.2× avg
+//   TP     : high ≥ 0.618
+//   SL     : close < 0.236
+//
+// TRADE 2
+//   Entry sequential : after T1 TP, close > 0.68 + filters
+//   Entry jump-in    : close > 0.68 + filters (skip T1 if price gapped past)
+//   TP               : high ≥ 1.0
+//   SL               : close < 0.618
+//
+// SETUP INVALIDATION
+//   Pre-activation: close below B → A stays, B updates to new lower low
+//   After SL: setup goes to "waiting" state, can re-activate
+//   After T2 TP: setup fully played
+//
+// MACRO SWING (drawn dimmed for context)
+//   A_macro = highest pivot high in lookback range
+//   B_macro = lowest pivot low since A_macro
+//   Only shown when distinct from Recent swing
+// ============================================================================
+
+import TradingView/ZigZag/7 as zigzag
+
+// =============== INPUTS ===============
+
+grpDetection = "Pivot Detection"
+pricePctDeviation = input.float(35.0, "Price Deviation (%)", minval=0.1, maxval=80.0, step=0.5,
+     group=grpDetection,
+     tooltip="A new swing pivot confirms only when price moves at least this % from the previous pivot. 35% catches major swings only. Tune down if too few setups appear; tune up if too noisy.")
+zigDepth = input.int(10, "Min Bars Between Pivots", minval=2, maxval=50,
+     group=grpDetection)
+
+grpMacro = "Macro Swing"
+showMacro = input.bool(true, "Show Macro Swing (dimmed background)", group=grpMacro,
+     tooltip="Draws A_highest → B_lowest as a dimmed gray context layer behind the recent setup.")
+
+grpFib = "Fibonacci Levels"
+fib_sl1     = input.float(0.236, "Trade 1 SL line",            minval=0.05, maxval=0.4,  step=0.001, group=grpFib)
+fib_entry1L = input.float(0.32,  "Trade 1 Entry Zone — Low",   minval=0.1,  maxval=0.5,  step=0.001, group=grpFib)
+fib_entry1H = input.float(0.382, "Trade 1 Entry Zone — High",  minval=0.1,  maxval=0.5,  step=0.001, group=grpFib)
+fib_tp1L    = input.float(0.618, "TP1 / Entry2 — Low",         minval=0.5,  maxval=0.8,  step=0.001, group=grpFib)
+fib_tp1H    = input.float(0.68,  "TP1 / Entry2 — High",        minval=0.5,  maxval=0.95, step=0.001, group=grpFib)
+fib_tp2L    = input.float(1.00,  "Trade 2 TP — Low",           minval=0.9,  maxval=1.5,  step=0.001, group=grpFib)
+fib_tp2H    = input.float(1.05,  "Trade 2 TP — High",          minval=0.9,  maxval=1.5,  step=0.001, group=grpFib)
+
+grpEMA = "Moving Averages"
+showEMAs    = input.bool(true,        "Show EMA 9 / EMA 21",   group=grpEMA)
+ema9Color   = input.color(color.blue, "EMA 9 Color",           group=grpEMA, inline="ema9")
+ema9Width   = input.int(2,            "Width",                 minval=1, maxval=5, group=grpEMA, inline="ema9")
+ema21Color  = input.color(color.red,  "EMA 21 Color",          group=grpEMA, inline="ema21")
+ema21Width  = input.int(2,            "Width",                 minval=1, maxval=5, group=grpEMA, inline="ema21")
+
+grpFilter = "Entry Filters"
+useEmaFilter = input.bool(true, "Require Close > EMA 9 AND EMA 21", group=grpFilter)
+useVolFilter = input.bool(true, "Require Volume > 1.2× 20-bar Avg", group=grpFilter)
+
+grpStyle = "Display"
+extendBars     = input.int(30, "Extend Zones Right (bars)", minval=5,  maxval=200, group=grpStyle)
+showInfoTable  = input.bool(true, "Show Info Table", group=grpStyle)
+showABLabels   = input.bool(true, "Show A / B Labels", group=grpStyle)
+showZigZagDbg  = input.bool(false, "Show ZigZag Line (debug)", group=grpStyle)
+
+grpZones = "Zone Styling"
+// Active zone fill transparency (lower = more visible)
+activeTransp   = input.int(60, "Active Zone Fill Transparency",  minval=0,  maxval=100, group=grpZones,
+     tooltip="Lower = more opaque/visible. 60 is bold; 75 is subtle.")
+dimTransp      = input.int(92, "Dimmed Zone Fill Transparency",  minval=70, maxval=100, group=grpZones)
+// Border width (applied to all zone boxes)
+zoneBorderWidth = input.int(1, "Zone Border Width", minval=1, maxval=5, group=grpZones)
+// Per-zone colors (only used for active state; dimmed state stays gray)
+zoneEntryColor = input.color(color.orange, "Entry Zone Color (active)", group=grpZones,
+     tooltip="Used for the active entry zone (T1 entry in States 1-2, T2 entry in States 3-4).")
+zoneTPColor    = input.color(color.lime,   "TP Zone Color (active)",    group=grpZones,
+     tooltip="Used for the active TP zone (T1 TP in States 1-2, T2 TP in States 3-4).")
+zoneDimColor   = input.color(color.gray,   "Dimmed Zone Color",         group=grpZones,
+     tooltip="Used for completed/inactive zones and the macro swing background layer.")
+sl1LineColor   = input.color(color.red,    "T1 SL Line (0.236) Color",  group=grpZones)
+sl1LineWidth   = input.int(1, "T1 SL Line Width", minval=1, maxval=5, group=grpZones)
+
+// =============== ZIGZAG ENGINE ===============
+var settings = zigzag.Settings.new(pricePctDeviation, zigDepth, color(na), false, false, false, false, "Absolute", true)
+var zigzag.ZigZag zigZag = zigzag.newInstance(settings)
+settings.devThreshold := pricePctDeviation
+settings.depth := zigDepth
+zigZag.update()
+
+// =============== EMAs ===============
+ema9  = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+plot(ema9,  "EMA 9",  color = showEMAs ? ema9Color  : color.new(ema9Color,  100), linewidth=ema9Width)
+plot(ema21, "EMA 21", color = showEMAs ? ema21Color : color.new(ema21Color, 100), linewidth=ema21Width)
+
+// =============== PERSISTENT STATE ===============
+// Recent swing
+var float recentA_price = na
+var int   recentA_time  = na
+var float recentB_price = na
+var int   recentB_time  = na
+
+// Macro swing
+var float macroA_price = na
+var int   macroA_time  = na
+var float macroB_price = na
+var int   macroB_time  = na
+
+// Trade state machine
+// States:  0 = no setup, 1 = waiting T1, 2 = in T1, 3 = waiting T2, 4 = in T2, 5 = played
+var int  tradeState        = 0
+var int  stateForB         = na    // which B was active when state was set (resets on new B)
+var bool t1_ever_triggered = false
+var bool t1_ever_played    = false
+var bool t2_ever_played    = false
+
+// =============== DETECTION: RECENT swing ===============
+// Most recent confirmed A→B down-swing. Iterate forward, keep overwriting,
+// so the final assignment in the loop is the latest down-swing.
+if zigZag.pivots.size() >= 1
+    sz = zigZag.pivots.size()
+
+    float foundR_A   = na
+    int   foundR_At  = na
+    float foundR_B   = na
+    int   foundR_Bt  = na
+
+    for i = 0 to sz - 1
+        p = zigZag.pivots.get(i)
+        if p.end.price < p.start.price  // down-swing
+            foundR_A  := p.start.price
+            foundR_At := p.start.time
+            foundR_B  := p.end.price
+            foundR_Bt := p.end.time
+
+    // First-time assignment or new down-swing detected
+    isFirst   = not na(foundR_Bt) and na(recentB_time)
+    isChanged = not na(foundR_Bt) and not na(recentB_time) and foundR_Bt != recentB_time
+    if isFirst or isChanged
+        recentA_price := foundR_A
+        recentA_time  := foundR_At
+        recentB_price := foundR_B
+        recentB_time  := foundR_Bt
+
+// =============== DETECTION: MACRO swing ===============
+// A_macro = highest pivot high overall; B_macro = lowest pivot low SINCE A_macro
+if zigZag.pivots.size() >= 1
+    sz2 = zigZag.pivots.size()
+
+    float bestAh = na
+    int   bestAt = na
+
+    // Pass 1: find highest .start price (the As are .start of down-swings,
+    // and .end of up-swings; we want the absolute highest pivot)
+    for i = 0 to sz2 - 1
+        p = zigZag.pivots.get(i)
+        // .start of the very first pivot is the chart's anchor; consider both points
+        if na(bestAh) or p.start.price > bestAh
+            bestAh := p.start.price
+            bestAt := p.start.time
+        if na(bestAh) or p.end.price > bestAh
+            bestAh := p.end.price
+            bestAt := p.end.time
+
+    // Pass 2: lowest pivot price strictly AFTER bestAt
+    float bestBl = na
+    int   bestBt = na
+    if not na(bestAt)
+        for j = 0 to sz2 - 1
+            p = zigZag.pivots.get(j)
+            if p.start.time > bestAt
+                if na(bestBl) or p.start.price < bestBl
+                    bestBl := p.start.price
+                    bestBt := p.start.time
+            if p.end.time > bestAt
+                if na(bestBl) or p.end.price < bestBl
+                    bestBl := p.end.price
+                    bestBt := p.end.time
+
+    if not na(bestAh) and not na(bestBl) and bestBt > bestAt
+        macroA_price := bestAh
+        macroA_time  := bestAt
+        macroB_price := bestBl
+        macroB_time  := bestBt
+
+// =============== INVALIDATION: price closed below B (pre-activation) ===============
+// Per spec: A stays, B updates to the new lower low.
+hasRecent = not na(recentA_price) and not na(recentB_price)
+if hasRecent and barstate.isconfirmed
+    if close < recentB_price and tradeState <= 1  // only when not yet in trade
+        // Lower B to the new low (use current bar's low as the new B)
+        if low < recentB_price
+            recentB_price := low
+            recentB_time  := time
+
+// =============== FIB LEVEL CALCULATIONS (for Recent) ===============
+float rng = na
+float lv_sl1   = na
+float lv_e1L   = na
+float lv_e1H   = na
+float lv_t1L   = na
+float lv_t1H   = na
+float lv_t2L   = na
+float lv_t2H   = na
+
+if hasRecent
+    rng     := recentA_price - recentB_price
+    lv_sl1  := recentB_price + fib_sl1     * rng
+    lv_e1L  := recentB_price + fib_entry1L * rng
+    lv_e1H  := recentB_price + fib_entry1H * rng
+    lv_t1L  := recentB_price + fib_tp1L    * rng
+    lv_t1H  := recentB_price + fib_tp1H    * rng
+    lv_t2L  := recentB_price + fib_tp2L    * rng
+    lv_t2H  := recentB_price + fib_tp2H    * rng
+
+// =============== TRADE STATE MACHINE ===============
+// Reset state when a new B forms.
+// Bug fix: na != anything = na (falsy), so explicit check for first-time vs changed.
+isFirstStateInit  = hasRecent and na(stateForB)
+isStateBChanged   = hasRecent and not na(stateForB) and recentB_time != stateForB
+
+if isFirstStateInit or isStateBChanged
+    stateForB         := recentB_time
+    tradeState        := 1     // start: waiting for T1
+    t1_ever_triggered := false
+    t1_ever_played    := false
+    t2_ever_played    := false
+
+// Filters
+volAvg = ta.sma(volume, 20)
+volOK  = not useVolFilter or volume > volAvg * 1.2
+emaOK  = not useEmaFilter or (close > ema9 and close > ema21)
+
+// Cross detection (require an actual crossing from below to above)
+crossesAbove_382 = hasRecent and close > lv_e1H and close[1] <= lv_e1H
+crossesAbove_68  = hasRecent and close > lv_t1H and close[1] <= lv_t1H
+
+// --- State transitions (evaluated on confirmed bars to avoid intra-bar flips) ---
+t1_entry_fired   = false
+t1_tp_fired      = false
+t1_sl_fired      = false
+t2_entry_fired   = false
+t2_tp_fired      = false
+t2_sl_fired      = false
+
+if hasRecent and barstate.isconfirmed
+
+    // ===== Jump-in to Trade 2 from State 1 =====
+    // If price closes above 0.68 while T1 has never been triggered, skip T1.
+    if tradeState == 1 and crossesAbove_68 and emaOK and volOK
+        tradeState     := 4              // straight to "in T2"
+        t2_entry_fired := true
+        t1_ever_played := true           // mark T1 as done (skipped)
+
+    // ===== State 1: waiting for Trade 1 entry =====
+    else if tradeState == 1 and crossesAbove_382 and emaOK and volOK
+        tradeState        := 2           // in T1
+        t1_entry_fired    := true
+        t1_ever_triggered := true
+
+    // ===== State 2: in Trade 1 — watch TP and SL =====
+    else if tradeState == 2
+        // TP first (high reached 0.618 zone)
+        if high >= lv_t1L
+            tradeState     := 3          // T1 played, waiting for T2
+            t1_tp_fired    := true
+            t1_ever_played := true
+        // SL (close below 0.236)
+        else if close < lv_sl1
+            tradeState  := 1             // back to waiting (setup not dead)
+            t1_sl_fired := true
+
+    // ===== State 3: waiting for Trade 2 entry (T1 already TP'd) =====
+    else if tradeState == 3 and crossesAbove_68 and emaOK and volOK
+        tradeState     := 4              // in T2
+        t2_entry_fired := true
+
+    // ===== State 4: in Trade 2 — watch TP and SL =====
+    else if tradeState == 4
+        // TP first (high reached 1.0 zone)
+        if high >= lv_t2L
+            tradeState     := 5          // fully played
+            t2_tp_fired    := true
+            t2_ever_played := true
+        // SL (close below 0.618)
+        else if close < lv_t1L
+            // Decide which "waiting" state to fall back to:
+            //   If T1 was actually played (high ≥ 0.618 happened), go back to State 3
+            //   If T1 was skipped (jump-in), fall all the way back to State 1
+            tradeState := t1_ever_triggered ? 3 : 1
+            t2_sl_fired := true
+
+// =============== PLOT SHAPES (entry/TP/SL markers) ===============
+plotshape(t1_entry_fired, "T1 Entry", style=shape.triangleup,   location=location.belowbar, color=color.new(color.lime,    0), size=size.small, text="T1 ▲", textcolor=color.white)
+plotshape(t1_tp_fired,    "T1 TP",    style=shape.triangledown, location=location.abovebar, color=color.new(color.aqua,    0), size=size.small, text="T1 TP", textcolor=color.white)
+plotshape(t1_sl_fired,    "T1 SL",    style=shape.xcross,       location=location.abovebar, color=color.new(color.red,     0), size=size.small, text="T1 SL", textcolor=color.white)
+plotshape(t2_entry_fired, "T2 Entry", style=shape.triangleup,   location=location.belowbar, color=color.new(color.fuchsia, 0), size=size.small, text="T2 ▲", textcolor=color.white)
+plotshape(t2_tp_fired,    "T2 TP",    style=shape.triangledown, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.small, text="T2 TP", textcolor=color.white)
+plotshape(t2_sl_fired,    "T2 SL",    style=shape.xcross,       location=location.abovebar, color=color.new(color.red,     0), size=size.small, text="T2 SL", textcolor=color.white)
+
+// =============== DRAWING ===============
+var box   bxE1     = na  // Entry Zone (0.32-0.382)
+var box   bxBand   = na  // Dual band (0.618-0.68)
+var box   bxT2     = na  // Trade 2 TP (1.0-1.05)
+var line  lnA      = na
+var line  lnB      = na
+var line  lnSL1    = na  // 0.236 line
+var label lbA      = na
+var label lbB      = na
+var label lbE1     = na
+var label lbBand   = na
+var label lbT2     = na
+
+// Macro overlay
+var box   bxM_E1   = na
+var box   bxM_Band = na
+var box   bxM_T2   = na
+var line  lnM_A    = na
+var line  lnM_B    = na
+
+isMacroDifferent = not na(macroB_time) and not na(recentB_time) and (macroB_time != recentB_time or macroA_time != recentA_time)
+
+if barstate.islast
+    // Clean previous
+    box.delete(bxE1)
+    box.delete(bxBand)
+    box.delete(bxT2)
+    line.delete(lnA)
+    line.delete(lnB)
+    line.delete(lnSL1)
+    label.delete(lbA)
+    label.delete(lbB)
+    label.delete(lbE1)
+    label.delete(lbBand)
+    label.delete(lbT2)
+    box.delete(bxM_E1)
+    box.delete(bxM_Band)
+    box.delete(bxM_T2)
+    line.delete(lnM_A)
+    line.delete(lnM_B)
+
+    rightTime = int(time + extendBars * (time - time[1]))
+
+    // ---- MACRO swing (dimmed background) ----
+    if showMacro and isMacroDifferent and not na(macroA_price)
+        mRng = macroA_price - macroB_price
+        m_e1L = macroB_price + fib_entry1L * mRng
+        m_e1H = macroB_price + fib_entry1H * mRng
+        m_bL  = macroB_price + fib_tp1L    * mRng
+        m_bH  = macroB_price + fib_tp1H    * mRng
+        m_t2L = macroB_price + fib_tp2L    * mRng
+        m_t2H = macroB_price + fib_tp2H    * mRng
+
+        macroDim = color.new(zoneDimColor, dimTransp)
+        macroBorderDim = color.new(zoneDimColor, 70)
+
+        bxM_E1   := box.new(macroB_time, m_e1H, rightTime, m_e1L, xloc=xloc.bar_time, border_color=macroBorderDim, bgcolor=macroDim, border_width=zoneBorderWidth)
+        bxM_Band := box.new(macroB_time, m_bH,  rightTime, m_bL,  xloc=xloc.bar_time, border_color=macroBorderDim, bgcolor=macroDim, border_width=zoneBorderWidth)
+        bxM_T2   := box.new(macroB_time, m_t2H, rightTime, m_t2L, xloc=xloc.bar_time, border_color=macroBorderDim, bgcolor=macroDim, border_width=zoneBorderWidth)
+        lnM_A    := line.new(macroA_time, macroA_price, rightTime, macroA_price, xloc=xloc.bar_time, color=color.new(zoneDimColor, 60), style=line.style_dotted, width=1)
+        lnM_B    := line.new(macroB_time, macroB_price, rightTime, macroB_price, xloc=xloc.bar_time, color=color.new(zoneDimColor, 60), style=line.style_dotted, width=1)
+
+    // ---- RECENT swing (active layer) ----
+    if hasRecent
+        // Decide color of each band based on tradeState
+        //   tradeState: 0 none, 1 waiting T1, 2 in T1, 3 waiting T2, 4 in T2, 5 played
+
+        // Entry Zone (0.32-0.382)
+        e1_active = tradeState == 1 or tradeState == 2
+        e1_border = e1_active ? zoneEntryColor : color.new(zoneDimColor, 70)
+        e1_bg     = e1_active ? color.new(zoneEntryColor, activeTransp) : color.new(zoneDimColor, dimTransp)
+
+        // Dual band (0.618-0.68)
+        band_isT1_TP = tradeState == 1 or tradeState == 2
+        band_isT2_Entry = tradeState == 3 or tradeState == 4
+        band_isPlayed = tradeState == 5
+        bandColor = band_isT1_TP ? zoneTPColor : band_isT2_Entry ? zoneEntryColor : color.new(zoneDimColor, 70)
+        bandBg    = band_isT1_TP ? color.new(zoneTPColor, activeTransp) : band_isT2_Entry ? color.new(zoneEntryColor, activeTransp) : color.new(zoneDimColor, dimTransp)
+
+        // Trade 2 TP (1.0-1.05)
+        t2_active = tradeState == 3 or tradeState == 4
+        t2_border = t2_active ? zoneTPColor : color.new(zoneDimColor, 70)
+        t2_bg     = t2_active ? color.new(zoneTPColor, activeTransp) : color.new(zoneDimColor, dimTransp)
+
+        midTime = int(recentB_time + (rightTime - recentB_time) / 2)
+
+        bxE1   := box.new(recentB_time, lv_e1H, rightTime, lv_e1L, xloc=xloc.bar_time, border_color=e1_border, bgcolor=e1_bg, border_width=zoneBorderWidth)
+        bxBand := box.new(recentB_time, lv_t1H, rightTime, lv_t1L, xloc=xloc.bar_time, border_color=bandColor, bgcolor=bandBg, border_width=zoneBorderWidth)
+        bxT2   := box.new(recentB_time, lv_t2H, rightTime, lv_t2L, xloc=xloc.bar_time, border_color=t2_border, bgcolor=t2_bg, border_width=zoneBorderWidth)
+
+        // 0.236 SL line for T1
+        lnSL1 := line.new(recentB_time, lv_sl1, rightTime, lv_sl1, xloc=xloc.bar_time, color=color.new(sl1LineColor, 50), style=line.style_dashed, width=sl1LineWidth)
+
+        lnA := line.new(recentA_time, recentA_price, rightTime, recentA_price, xloc=xloc.bar_time, color=color.new(color.white, 30), style=line.style_dotted, width=1)
+        lnB := line.new(recentB_time, recentB_price, rightTime, recentB_price, xloc=xloc.bar_time, color=color.new(color.white, 30), style=line.style_dotted, width=1)
+
+        if showABLabels
+            lbA := label.new(recentA_time, recentA_price, "A  " + str.tostring(recentA_price, format.mintick), xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.red, 20),   textcolor=color.white, size=size.small)
+            lbB := label.new(recentB_time, recentB_price, "B  " + str.tostring(recentB_price, format.mintick), xloc=xloc.bar_time, style=label.style_label_up,   color=color.new(color.green, 20), textcolor=color.white, size=size.small)
+
+        // Zone labels (only show on active zones)
+        if e1_active
+            lbE1 := label.new(midTime, (lv_e1L + lv_e1H) / 2, "T1 Entry", xloc=xloc.bar_time, style=label.style_none, textcolor=zoneEntryColor, size=size.normal)
+        if band_isT1_TP
+            lbBand := label.new(midTime, (lv_t1L + lv_t1H) / 2, "T1 TP / T2 Entry", xloc=xloc.bar_time, style=label.style_none, textcolor=zoneTPColor, size=size.normal)
+        else if band_isT2_Entry
+            lbBand := label.new(midTime, (lv_t1L + lv_t1H) / 2, "T2 Entry", xloc=xloc.bar_time, style=label.style_none, textcolor=zoneEntryColor, size=size.normal)
+        if t2_active
+            lbT2 := label.new(midTime, (lv_t2L + lv_t2H) / 2, "T2 TP", xloc=xloc.bar_time, style=label.style_none, textcolor=zoneTPColor, size=size.normal)
+
+    // ---- Debug ZigZag ----
+    if showZigZagDbg and zigZag.pivots.size() >= 1
+        for i = 0 to zigZag.pivots.size() - 1
+            p = zigZag.pivots.get(i)
+            line.new(p.start.time, p.start.price, p.end.time, p.end.price, xloc=xloc.bar_time, color=color.new(color.yellow, 50), width=1, style=line.style_dashed)
+
+// =============== INFO TABLE ===============
+var table info = table.new(position.top_right, 2, 16, bgcolor=color.new(color.black, 70), border_width=1)
+
+stateLabel(int s) =>
+    s == 0 ? "No setup" :
+     s == 1 ? "⏳ Waiting T1 entry" :
+     s == 2 ? "🟢 IN TRADE 1" :
+     s == 3 ? "⏳ T1 played → Waiting T2" :
+     s == 4 ? "🟢 IN TRADE 2" :
+     s == 5 ? "✓ Fully played" : "?"
+
+stateColor(int s) =>
+     s == 2 or s == 4 ? color.lime :
+     s == 1 or s == 3 ? color.aqua :
+     s == 5 ? color.gray : color.white
+
+if barstate.islast and showInfoTable
+    table.cell(info, 0, 0, "ZZ KB Fib Dual Trade", text_color=color.orange, text_size=size.small)
+    table.cell(info, 1, 0, timeframe.period, text_color=color.orange, text_size=size.small)
+
+    if not hasRecent
+        // Diagnostic info when no setup
+        int dnCount = 0
+        if zigZag.pivots.size() >= 1
+            for di = 0 to zigZag.pivots.size() - 1
+                pd = zigZag.pivots.get(di)
+                if pd.end.price < pd.start.price
+                    dnCount += 1
+        table.cell(info, 0, 1, "Status", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 1, "Waiting for valid swing", text_color=color.aqua, text_size=size.small)
+        table.cell(info, 0, 2, "ZigZag pivots", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 2, str.tostring(zigZag.pivots.size()) + " (down=" + str.tostring(dnCount) + ")", text_color=color.aqua, text_size=size.small)
+        table.cell(info, 0, 3, "Detection", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 3, "Dev=" + str.tostring(pricePctDeviation, "#.#") + "%", text_color=color.gray, text_size=size.small)
+    else
+        dropPct = (recentA_price - recentB_price) / recentA_price * 100.0
+
+        table.cell(info, 0, 1, "State", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 1, stateLabel(tradeState), text_color=stateColor(tradeState), text_size=size.small)
+
+        table.cell(info, 0, 2, "A (peak)", text_color=color.red, text_size=size.small)
+        table.cell(info, 1, 2, str.tostring(recentA_price, format.mintick), text_color=color.red, text_size=size.small)
+
+        table.cell(info, 0, 3, "B (low)", text_color=color.green, text_size=size.small)
+        table.cell(info, 1, 3, str.tostring(recentB_price, format.mintick), text_color=color.green, text_size=size.small)
+
+        table.cell(info, 0, 4, "Drop %", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 4, str.tostring(dropPct, "#.##") + "%", text_color=color.white, text_size=size.small)
+
+        table.cell(info, 0, 5, "T1 Entry", text_color=color.orange, text_size=size.small)
+        table.cell(info, 1, 5, str.tostring(lv_e1L, format.mintick) + " – " + str.tostring(lv_e1H, format.mintick), text_color=color.orange, text_size=size.small)
+
+        table.cell(info, 0, 6, "T1 TP / T2 Entry", text_color=color.lime, text_size=size.small)
+        table.cell(info, 1, 6, str.tostring(lv_t1L, format.mintick) + " – " + str.tostring(lv_t1H, format.mintick), text_color=color.lime, text_size=size.small)
+
+        table.cell(info, 0, 7, "T2 TP", text_color=color.lime, text_size=size.small)
+        table.cell(info, 1, 7, str.tostring(lv_t2L, format.mintick) + " – " + str.tostring(lv_t2H, format.mintick), text_color=color.lime, text_size=size.small)
+
+        table.cell(info, 0, 8, "T1 SL", text_color=color.red, text_size=size.small)
+        table.cell(info, 1, 8, str.tostring(lv_sl1, format.mintick) + " (close < 0.236)", text_color=color.red, text_size=size.small)
+
+        table.cell(info, 0, 9, "T2 SL", text_color=color.red, text_size=size.small)
+        table.cell(info, 1, 9, str.tostring(lv_t1L, format.mintick) + " (close < 0.618)", text_color=color.red, text_size=size.small)
+
+        table.cell(info, 0, 10, "Price", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 10, str.tostring(close, format.mintick), text_color=color.white, text_size=size.small)
+
+        emaCheck = close > ema9 and close > ema21
+        volCheck = volume > volAvg * 1.2
+        table.cell(info, 0, 11, "EMA filter", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 11, emaCheck ? "✓ above" : "✗ below", text_color=emaCheck ? color.lime : color.gray, text_size=size.small)
+
+        table.cell(info, 0, 12, "Volume filter", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 12, volCheck ? "✓ heavy" : "✗ normal", text_color=volCheck ? color.lime : color.gray, text_size=size.small)
+
+        if isMacroDifferent
+            table.cell(info, 0, 13, "Macro A → B", text_color=color.gray, text_size=size.small)
+            table.cell(info, 1, 13, str.tostring(macroA_price, format.mintick) + " → " + str.tostring(macroB_price, format.mintick), text_color=color.gray, text_size=size.small)
+
+        table.cell(info, 0, 14, "Detection", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 14, "Dev=" + str.tostring(pricePctDeviation, "#.#") + "%", text_color=color.gray, text_size=size.small)
+
+// =============== ALERTS ===============
+alertcondition(t1_entry_fired, "T1 Entry", "T1 ENTRY on {{ticker}}")
+alertcondition(t1_tp_fired,    "T1 TP",    "T1 TP HIT on {{ticker}}")
+alertcondition(t1_sl_fired,    "T1 SL",    "T1 SL HIT on {{ticker}}")
+alertcondition(t2_entry_fired, "T2 Entry", "T2 ENTRY on {{ticker}}")
+alertcondition(t2_tp_fired,    "T2 TP",    "T2 TP HIT on {{ticker}}")
+alertcondition(t2_sl_fired,    "T2 SL",    "T2 SL HIT on {{ticker}}")
