@@ -43,6 +43,9 @@ def scan_symbol(sym, df, params=None):
     if params:
         p.update(params)
 
+    # each trade is graded independently; "approaching" = within approachPct% below the band
+    approach_mul = 1.0 - float(p.get("approachPct", 1.5)) / 100.0
+
     # peaks + per-swing detail, mirroring the Pine info table
     swings = []
     top_a = None
@@ -57,10 +60,33 @@ def scan_symbol(sym, df, params=None):
         sti = int(st) if st == st else 0
         if active_idx is None and sti != 3:           # active = lowest swing not TP'd
             active_idx = i
+
+        # engine-truth age: trailing bars in the CURRENT state (ST history is bar-aligned),
+        # and — for open trades — the bar date the entry fired (start of the IN run)
+        stser = res[f"ST{i}"]
+        bars_in = 0
+        for j in range(last, -1, -1):
+            v = stser[j]
+            vj = int(v) if (v is not None and v == v) else None
+            if vj != sti:
+                break
+            bars_in += 1
+        entry_date = str(df.index[last - bars_in + 1].date()) if (sti == 2 and bars_in) else None
+
+        # this trade's own zone flags (only a waiting trade can be in/approaching its band)
+        sw_in = sw_appr = False
+        if sti == 1 and lv["eL"] == lv["eL"]:         # eL not NaN
+            sw_in = lv["eL"] <= close <= lv["eH"]
+            sw_appr = (not sw_in) and (lv["eL"] * approach_mul <= close < lv["eL"])
+
         swings.append({
             "swing": f"T{i + 1}",
             "A": _f(a),
             "state": {1: "wait", 2: "IN", 3: "TP"}.get(sti, "-"),
+            "bars_in_state": bars_in,
+            "entry_date": entry_date,
+            "in_band": bool(sw_in),
+            "approaching": bool(sw_appr),
             "entry_lo": _f(lv["eL"]), "entry_hi": _f(lv["eH"]),
             "tp_lo": _f(lv["tL"]), "tp_hi": _f(lv["tH"]),
             "sl": _f(lv["sl"]),
@@ -72,16 +98,13 @@ def scan_symbol(sym, df, params=None):
 
     expired = top_a is not None and close > top_a
 
-    # active-swing entry band -> in_band / approaching (matches dashboard semantics)
+    # row-level flags mirror the ACTIVE trade (kept for backwards compatibility)
     in_band = approaching = False
     active = None
     if active_idx is not None:
         active = next(s for s in swings if s["swing"] == f"T{active_idx + 1}")
-        eL, eH = active["entry_lo"], active["entry_hi"]
-        if eL is not None and eH is not None:
-            in_band = eL <= close <= eH
-            # within 3% below the band = "approaching" (climbing toward entry)
-            approaching = (not in_band) and (eL * 0.97 <= close < eL)
+        in_band = active["in_band"]
+        approaching = active["approaching"]
 
     # did anything fire on the most recent confirmed bar?
     fired = {k: (res[k][last] == 1.0) for k in ("ENTRY", "TP", "SL")}

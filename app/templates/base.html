@@ -7,32 +7,102 @@
 <script>
   // set the theme BEFORE first paint (no flash). Light is the default.
   document.documentElement.dataset.theme = localStorage.getItem("kwm-theme") || "light";
+
+  // ------- shared helpers for the data pages (window.KWM) -------
+  // defined in <head> so page scripts inside the content block can use them immediately
+  window.KWM = (function () {
+    const MARKET = "{{ market }}";
+    const nf = (x, d = 2) => (x === null || x === undefined) ? "—"
+        : Number(x).toLocaleString("en-IN", { maximumFractionDigits: d });
+    const band = (lo, hi) => (lo == null) ? "—" : nf(lo) + " – " + nf(hi);
+    const rel = iso => {
+      if (!iso) return "—";
+      const m = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
+      return m < 60 ? Math.round(m) + "m ago"
+           : m < 60 * 36 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
+    };
+    const tv = s => MARKET === "india"
+        ? "https://www.tradingview.com/chart/?symbol=NSE:" + encodeURIComponent(s)
+        : "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(s);
+    const tvsym = s => MARKET === "india" ? "NSE:" + s : s;
+
+    // one trade per (stock, swing): the dashboard's unit of display
+    function flatten(scan) {
+      const out = [];
+      (scan.rows || []).forEach(r => {
+        if (r.expired) return;
+        (r.swings || []).forEach(s => {
+          let sig = null;
+          if (s.state === "IN") sig = (s.bars_in_state <= 1) ? "Triggered" : "Active";
+          else if (s.state === "wait") sig = s.in_band ? "In Zone" : (s.approaching ? "Approaching" : null);
+          if (!sig) return;
+          out.push(Object.assign({}, s, {
+            sym: r.sym, sector: r.sector || "", ltp: r.ltp, day_pct: r.day_pct,
+            vol_x: r.vol_x, asof: r.asof, B: r.B, sig: sig,
+          }));
+        });
+      });
+      return out;
+    }
+
+    async function fetchScan() {
+      const res = await (await fetch("/api/scan?market=" + MARKET)).json();
+      if (res.scan && res.scan.generated_at) {
+        const t = new Date(res.scan.generated_at);
+        const el = document.getElementById("updated");
+        if (el) el.textContent = "· updated " + t.toLocaleTimeString("en-GB",
+            { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) + " IST";
+      }
+      return res;
+    }
+
+    function copyButtons(getSyms, btnCopy, btnTxt) {
+      btnCopy.onclick = async () => {
+        const syms = getSyms();
+        const txt = syms.map(tvsym).join(",");
+        try { await navigator.clipboard.writeText(txt); btnCopy.textContent = "✓ Copied " + syms.length; }
+        catch (e) { prompt("Copy this:", txt); }
+        setTimeout(() => { btnCopy.textContent = "⎘ Copy for TradingView"; }, 2500);
+      };
+      btnTxt.onclick = () => {
+        const txt = getSyms().map(tvsym).join(",");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" }));
+        a.download = "kwm_watchlist_" + new Date().toISOString().slice(0, 10) + ".txt";
+        a.click();
+      };
+    }
+    return { MARKET, nf, band, rel, tv, tvsym, flatten, fetchScan, copyButtons };
+  })();
 </script>
 <style>
   :root {
     --bg:#f6f8fa; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0;
     --accent:#10b981; --accent-deep:#059669; --accent-soft:#ecfdf5;
-    --orange:#f97316; --orange-soft:#fff7ed; --amber:#f59e0b; --red:#ef4444;
+    --orange:#f97316; --orange-soft:#fff7ed; --amber:#f59e0b; --amber-soft:#fffbeb;
+    --red:#ef4444; --red-soft:#fef2f2;
     --blue:#0ea5e9; --blue-soft:#f0f9ff; --shadow:0 1px 3px rgba(15,23,42,.07);
   }
   [data-theme="dark"] {
     --bg:#0b1220; --card:#121b2e; --text:#e2e8f0; --muted:#8fa3bd; --border:#1f2c45;
-    --accent-soft:#0c2b22; --orange-soft:#2b1a0c; --blue-soft:#0c2233;
-    --shadow:0 1px 3px rgba(0,0,0,.5);
+    --accent-soft:#0c2b22; --orange-soft:#2b1a0c; --amber-soft:#2b230c;
+    --red-soft:#2b0f0f; --blue-soft:#0c2233; --shadow:0 1px 3px rgba(0,0,0,.5);
   }
   * { box-sizing: border-box; }
   body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; margin:0;
          background:var(--bg); color:var(--text); }
   a { color:inherit; }
+  .num, td, .kcard .val { font-variant-numeric: tabular-nums; }
 
   /* ---------- masthead ---------- */
   header { background:var(--card); border-bottom:1px solid var(--border); box-shadow:var(--shadow);
            position:sticky; top:0; z-index:20; }
   .mast { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; flex-wrap:wrap;
-          align-items:center; gap:10px 14px; }
+          align-items:center; gap:8px 14px; }
   .brand { display:flex; align-items:baseline; gap:8px; margin-right:auto; text-decoration:none; }
   .brand .mark { color:var(--accent); font-size:18px; }
-  .brand b { font-size:18px; letter-spacing:.2px; }
+  .brand .w1 { font-size:18px; font-weight:800; color:var(--accent-deep); letter-spacing:.2px; }
+  .brand .w2 { font-size:18px; font-weight:500; color:var(--text); }
   .brand small { color:var(--muted); font-size:12px; }
   .live { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
   .live .dot { width:8px; height:8px; border-radius:50%; background:var(--accent);
@@ -44,6 +114,7 @@
   .btn:hover { border-color:var(--accent); }
   .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   .btn.primary:hover { background:var(--accent-deep); }
+  .btn.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-deep); }
   .btn:disabled { opacity:.55; cursor:default; }
 
   .navrow { max-width:1200px; margin:0 auto; padding:0 16px; display:flex; align-items:center; gap:4px; }
@@ -53,35 +124,97 @@
   .tab:hover { color:var(--text); }
   .mkt { margin-left:auto; display:flex; gap:6px; padding-bottom:6px; }
   .chip { font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px;
-          border:1px solid var(--border); color:var(--muted); text-decoration:none; }
+          border:1px solid var(--border); color:var(--muted); text-decoration:none; cursor:pointer;
+          background:var(--card); }
   .chip.on { background:var(--accent-soft); color:var(--accent-deep); border-color:var(--accent); }
   .jobmsg { font-size:12px; color:var(--muted); }
 
   main { max-width:1200px; margin:0 auto; padding:16px; }
   h1 { font-size:20px; } h2 { font-size:16px; margin-top:22px; } h3 { font-size:14px; margin:14px 0 4px; }
 
-  /* ---------- shared bits (tables on forward/settings keep working) ---------- */
+  /* ---------- shared components ---------- */
+  .meta { font-size:12.5px; color:var(--muted); margin:2px 0 12px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:0 0 14px; }
+  .kcard { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:11px 14px;
+           cursor:pointer; box-shadow:var(--shadow); }
+  .kcard .lbl { font-size:10.5px; letter-spacing:.6px; color:var(--muted); text-transform:uppercase; }
+  .kcard .val { font-size:23px; font-weight:700; margin-top:2px; }
+  .kcard.on { outline:2px solid var(--accent); }
+  .v-trig .val { color:var(--accent-deep); } .v-zone .val { color:var(--blue); }
+  .v-appr .val { color:var(--amber); } .v-vol .val { color:var(--orange); }
+  .v-fresh .val { color:var(--accent); }
+
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .toolbar input[type=text] { min-width:160px; flex:1 1 160px; }
+  .swingchips { display:flex; gap:6px; }
+
+  .tbl-wrap { overflow-x:auto; background:var(--card); border:1px solid var(--border); border-radius:12px;
+              box-shadow:var(--shadow); }
   table { border-collapse:collapse; font-size:13px; margin:6px 0; width:100%; background:var(--card); }
   th, td { border:1px solid var(--border); padding:6px 9px; text-align:right; }
   th:first-child, td:first-child { text-align:left; }
   th { background:var(--bg); color:var(--muted); font-weight:600; }
   tr.bench td { color:var(--muted); font-style:italic; }
+  table.trades { border:none; margin:0; }
+  table.trades th, table.trades td { border:none; border-bottom:1px solid var(--border); white-space:nowrap; }
+  table.trades th { position:sticky; top:0; cursor:pointer; user-select:none; background:var(--card); }
+  table.trades th .arr { color:var(--accent-deep); }
+  table.trades tr.datarow { cursor:pointer; }
+  table.trades tr.datarow:hover td { background:var(--accent-soft); }
+  table.trades tr.warn td { background:var(--amber-soft); }
+  .sym { font-weight:700; text-decoration:none; }
+  .sym:hover { color:var(--accent-deep); text-decoration:underline; }
+  .badge { display:inline-block; font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px;
+           min-width:74px; text-align:center; }
+  .b-trig { background:var(--accent-soft); color:var(--accent-deep); }
+  .b-zone { background:var(--blue-soft); color:var(--blue); }
+  .b-appr { background:var(--orange-soft); color:var(--amber); }
+  .b-act  { background:var(--blue-soft); color:var(--blue); }
+  .tn { display:inline-block; font-size:11px; font-weight:800; color:var(--muted);
+        border:1px solid var(--border); border-radius:6px; padding:2px 6px; margin-right:6px; }
+  .freshdot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent);
+              vertical-align:middle; }
+  .volx { color:var(--orange); font-weight:700; }
   .pos { color:var(--accent-deep); } .neg { color:var(--red); }
   .err { color:var(--red); } .muted { color:var(--muted); }
-  input, select, button { font-size:13px; }
+  tr.detail td { background:var(--bg) !important; white-space:normal; cursor:default; }
+  .swings { display:flex; flex-wrap:wrap; gap:10px; padding:4px 0; }
+  .swingbox { border:1px solid var(--border); border-radius:10px; padding:8px 12px; background:var(--card);
+              font-size:12.5px; min-width:210px; }
+  .swingbox b { color:var(--accent-deep); }
   input[type=text], input[type=password], select {
     background:var(--card); color:var(--text); border:1px solid var(--border);
     border-radius:8px; padding:7px 10px; }
+  .foot { font-size:12px; color:var(--muted); margin:16px 0; }
+
+  /* ---------- phone layout: cards instead of the wide table ---------- */
+  .mcards { display:none; }
+  @media (max-width: 720px) {
+    .tbl-wrap { display:none; }
+    .mcards { display:flex; flex-direction:column; gap:8px; }
+    .mcard { background:var(--card); border:1px solid var(--border); border-radius:12px;
+             padding:10px 12px; box-shadow:var(--shadow); }
+    .mcard .r1 { display:flex; align-items:center; gap:8px; }
+    .mcard .r1 .sym { font-size:15px; }
+    .mcard .r1 .right { margin-left:auto; text-align:right; }
+    .mcard .r2 { display:flex; justify-content:space-between; gap:8px; margin-top:6px;
+                 font-size:12.5px; color:var(--muted); flex-wrap:wrap; }
+    .mcard .r2 b { color:var(--text); font-weight:600; }
+    .mcard .more { margin-top:8px; border-top:1px dashed var(--border); padding-top:8px; }
+    .cards { grid-template-columns:repeat(3,1fr); }
+    .kcard { padding:8px 10px; } .kcard .val { font-size:19px; }
+  }
 </style>
 </head>
 <body>
 <header>
   <div class="mast">
     <a class="brand" href="/scanner?market={{ market }}">
-      <span class="mark">◤</span><b>KWM <span style="font-weight:500">Auto Screener</span></b>
-      <small>Nested Swings V2 · by KB</small>
+      <span class="mark">◤</span><span class="w1">KWM</span><span class="w2">Auto Screener</span>
+      <small>Daily Setup | Long Only</small>
     </a>
-    <span class="live"><span class="dot" id="livedot"></span><span id="livetxt">LIVE</span></span>
+    <span class="live"><span class="dot" id="livedot"></span><span id="livetxt">LIVE</span>
+      <span id="updated"></span></span>
     <span class="jobmsg" id="job">{{ job.msg }}</span>
     <span class="clock" id="clock">--:--:--</span>
     <form method="post" action="/refresh" style="margin:0">
@@ -92,7 +225,8 @@
   </div>
   <div class="navrow">
     <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
-    <a class="tab {% if page == 'forward' %}on{% endif %}" href="/forward?market={{ market }}">Forward test</a>
+    <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active</a>
+    <a class="tab {% if page == 'glossary' %}on{% endif %}" href="/glossary?market={{ market }}">Glossary</a>
     <a class="tab {% if page == 'settings' %}on{% endif %}" href="/settings?market={{ market }}">Settings</a>
     <span class="mkt">
       {% for m in markets %}<a class="chip {% if m == market %}on{% endif %}" href="?market={{ m }}">{{ m|upper }}</a>{% endfor %}

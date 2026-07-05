@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="meta" id="meta">Loading active trades …</div>
+
+<div class="toolbar">
+  <span class="swingchips" id="chips"></span>
+  <select id="fSector"><option value="">All sectors</option></select>
+  <input type="text" id="fQ" placeholder="Search symbol…">
+  <button class="btn" id="bCopy">⎘ Copy for TradingView</button>
+  <button class="btn" id="bTxt">⬇ Download TXT</button>
+</div>
+
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr id="head"></tr></thead>
+  <tbody id="body"></tbody>
+</table></div>
+<div class="mcards" id="mcards"></div>
+
+<p class="foot">Active = trades whose entry fired on an <b>earlier</b> trading day (per the system).
+Amber rows are within 3% of their stop — check those first. R = profit so far measured in units of
+the initial risk. Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  const COLS = [
+    { k: "sym",        t: "Symbol"     },
+    { k: "swing",      t: "Trade"      },
+    { k: "entry_date", t: "Entered"    },
+    { k: "_days",      t: "Bars held"  },
+    { k: "_entry",     t: "Entry band" },
+    { k: "ltp",        t: "CMP"        },
+    { k: "day_pct",    t: "Day %"      },
+    { k: "_r",         t: "R"          },
+    { k: "_totp",      t: "To target %"},
+    { k: "_sl",        t: "Stop"       },
+    { k: "vol_x",      t: "Vol ×"      },
+  ];
+  let trades = [], sortK = "_r", sortDir = -1, expanded = null;
+  const F = { sector: "", swing: "", q: "" };
+
+  const rMult  = t => (t.entry_hi && t.sl && t.entry_hi > t.sl && t.ltp !== null)
+      ? (t.ltp - t.entry_hi) / (t.entry_hi - t.sl) : null;
+  const toTp   = t => (t.tp_lo && t.ltp) ? (t.tp_lo / t.ltp - 1) * 100 : null;
+  const nearSL = t => (t.sl && t.ltp !== null) && t.ltp <= t.sl * 1.03;
+  const val = (t, k) => k === "_days" ? t.bars_in_state : k === "_entry" ? t.entry_lo
+            : k === "_r" ? rMult(t) : k === "_totp" ? toTp(t) : k === "_sl" ? t.sl : t[k];
+  const key = t => t.sym + ":" + t.swing;
+
+  function visible() {
+    return trades.filter(t =>
+      (!F.swing || t.swing === F.swing) &&
+      (!F.sector || t.sector === F.sector) &&
+      (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
+  }
+
+  function render() {
+    const rs = visible().slice().sort((a, b) => {
+      const x = val(a, sortK), y = val(b, sortK);
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+    });
+
+    $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
+      `<span class="chip ${F.swing === s ? "on" : ""}" data-s="${s}">${s || "All"}</span>`).join("");
+    document.querySelectorAll("#chips .chip").forEach(el => el.onclick = () => {
+      F.swing = el.dataset.s; render();
+    });
+
+    $("head").innerHTML = COLS.map(c =>
+      `<th data-k="${c.k}">${c.t} ${sortK === c.k ? `<span class="arr">${sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`
+    ).join("");
+    document.querySelectorAll("#head th[data-k]").forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = -1; }
+      render();
+    });
+
+    $("body").innerHTML = rs.map((t, i) => {
+      const r = rMult(t), tp = toTp(t), dp = t.day_pct;
+      return `<tr class="datarow ${nearSL(t) ? "warn" : ""}" data-i="${i}">
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a></td>
+        <td style="text-align:left"><span class="tn">${t.swing}</span></td>
+        <td class="muted">${t.entry_date || "—"}</td>
+        <td>${t.bars_in_state ?? "—"}</td>
+        <td>${K.band(t.entry_lo, t.entry_hi)}</td>
+        <td>${K.nf(t.ltp)}</td>
+        <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</td>
+        <td class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</td>
+        <td>${tp === null ? "—" : "+" + K.nf(tp, 1) + "%"}</td>
+        <td>${K.nf(t.sl)}${nearSL(t) ? " ⚠" : ""}</td>
+        <td>${(t.vol_x === null || t.vol_x === undefined) ? "—" : (t.vol_x >= 2 ? `<span class="volx">⚡ ${K.nf(t.vol_x, 1)}×</span>` : K.nf(t.vol_x, 1) + "×")}</td>
+      </tr>` + (expanded === key(t) ? detailRow(t) : "");
+    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
+
+    document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
+      if (e.target.closest("a")) return;
+      const t = rs[Number(tr.dataset.i)];
+      expanded = (expanded === key(t)) ? null : key(t);
+      render();
+    });
+
+    // phone cards
+    $("mcards").innerHTML = rs.map((t, i) => {
+      const r = rMult(t), dp = t.day_pct;
+      return `<div class="mcard ${nearSL(t) ? "warn" : ""}" data-i="${i}" ${nearSL(t) ? 'style="border-color:var(--amber)"' : ""}>
+        <div class="r1">
+          <a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>
+          <span class="tn">${t.swing}</span>${nearSL(t) ? "⚠" : ""}
+          <span class="right num"><b class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</b><br>
+            <span class="muted" style="font-size:12px">${t.bars_in_state ?? "—"} bars</span></span>
+        </div>
+        <div class="r2">
+          <span>CMP <b>${K.nf(t.ltp)}</b> <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}">${(dp === null || dp === undefined) ? "" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
+          <span>Stop <b>${K.nf(t.sl)}</b></span>
+          <span>Target <b>${K.nf(t.tp_lo)}</b></span>
+        </div>
+        ${expanded === key(t) ? `<div class="more r2">
+          <span>Entered <b>${t.entry_date || "—"}</b></span>
+          <span>Entry <b>${K.band(t.entry_lo, t.entry_hi)}</b></span>
+          <span>To target <b>${toTp(t) === null ? "—" : "+" + K.nf(toTp(t), 1) + "%"}</b></span>
+          <span>${t.sector || ""}</span></div>` : ""}
+      </div>`;
+    }).join("") || `<div class="muted" style="padding:20px;text-align:center">No active trades right now.</div>`;
+    document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
+      if (e.target.closest("a")) return;
+      const t = rs[Number(el.dataset.i)];
+      expanded = (expanded === key(t)) ? null : key(t);
+      render();
+    });
+
+    window._syms = [...new Set(rs.map(t => t.sym))];
+  }
+
+  function detailRow(t) {
+    return `<tr class="detail"><td colspan="11">
+      <div class="swings">
+        <div class="swingbox"><b>${t.swing}</b> · depth ${K.nf(t.depth_pct, 1)}% · peak A ${K.nf(t.A)}<br>
+          Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
+        <div class="swingbox">Sector: <b>${t.sector || "—"}</b><br>
+          B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
+      </div></td></tr>`;
+  }
+
+  $("fSector").onchange = e => { F.sector = e.target.value; render(); };
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+  K.copyButtons(() => window._syms || [], $("bCopy"), $("bTxt"));
+
+  async function load() {
+    let res;
+    try { res = await K.fetchScan(); }
+    catch (e) { $("meta").textContent = "Could not load the scan — check the connection and refresh."; return; }
+    if (!res.scan) { $("meta").textContent = "No scan yet — press Refresh on the Scanner tab."; return; }
+    trades = K.flatten(res.scan).filter(t => t.sig === "Active");
+    const warn = trades.filter(nearSL).length;
+    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · <b>${trades.length}</b> active trades` +
+      (warn ? ` · <span class="neg">${warn} near stop ⚠</span>` : "");
+    const sectors = [...new Set(trades.map(t => t.sector).filter(Boolean))].sort();
+    $("fSector").innerHTML = '<option value="">All sectors</option>' +
+      sectors.map(s => `<option${s === F.sector ? " selected" : ""}>${s}</option>`).join("");
+    render();
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .gwrap { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  .gcard { background:var(--card); border:1px solid var(--border); border-radius:12px;
+           padding:14px 16px; box-shadow:var(--shadow); }
+  .gcard h3 { margin:0 0 8px; color:var(--accent-deep); font-size:14px; }
+  .gcard dt { font-weight:700; margin-top:10px; font-size:13px; }
+  .gcard dd { margin:2px 0 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+  .flow { background:var(--card); border:1px solid var(--border); border-radius:12px;
+          padding:14px 16px; margin-bottom:12px; box-shadow:var(--shadow); font-size:13.5px;
+          line-height:1.6; }
+  .flow .badge { margin:0 2px; }
+</style>
+
+<h1>Glossary — how the KWM Auto Screener works</h1>
+
+<div class="flow">
+  <b>The life of a trade:</b>
+  <span class="badge b-appr">Approaching</span> → <span class="badge b-zone">In Zone</span> →
+  <span class="badge b-trig">Triggered</span> → <span class="badge b-act">Active</span> →
+  exit at <b>Target</b> (trade complete) or <b>Stop</b> (setup re-arms and waits again).
+  The Scanner tab shows the first three; trades entered on earlier days live in the Active tab.
+</div>
+
+<div class="gwrap">
+  <div class="gcard">
+    <h3>The strategy — Nested Swings V2 (Daily · Long Only)</h3>
+    <dl>
+      <dt>The setup</dt>
+      <dd>A sharp decline from a peak <b>A</b> down to a common low <b>B</b> that starts recovering.
+          The decline's size sets exact Fibonacci price bands for entry, target and stop.</dd>
+      <dt>Nested trades: T1 · T2 · T3 · T4</dt>
+      <dd>One recovery can host up to four trades at once. <b>T1</b> is measured to the peak
+          nearest the low; T2, T3, T4 to progressively higher peaks — so higher T-numbers are
+          deeper setups with bigger bands. Each trade lives its own independent life:
+          T1 can be running while T2 is still waiting for entry.</dd>
+      <dt>Entry rule (what "Triggered" means)</dt>
+      <dd>A daily close above the entry band, with price above both EMA 9 and EMA 21, on volume
+          at least 1.2× its 20-day average. All three must be true.</dd>
+      <dt>Exit rules</dt>
+      <dd><b>Target:</b> price reaches the target band → trade complete (that T is done).
+          <b>Stop:</b> a daily close below the stop → trade exits, and the setup re-arms to
+          wait for a fresh entry.</dd>
+    </dl>
+  </div>
+
+  <div class="gcard">
+    <h3>Signals (per trade)</h3>
+    <dl>
+      <dt><span class="badge b-appr">Approaching</span></dt>
+      <dd>Waiting trade with price within 1.5% below its entry band — an early heads-up to prepare.
+          Hidden by default; tap the Approaching card to reveal.</dd>
+      <dt><span class="badge b-zone">In Zone</span></dt>
+      <dd>Price is inside the entry band right now. Watch for the closing trigger — this is the
+          actionable moment.</dd>
+      <dt><span class="badge b-trig">Triggered</span></dt>
+      <dd>The entry fired on the latest daily bar — a brand-new system trade.</dd>
+      <dt><span class="badge b-act">Active</span></dt>
+      <dd>Entry fired on an earlier trading day — the trade is running. Managed on the Active tab.</dd>
+      <dt><span class="freshdot"></span> Fresh</dt>
+      <dd>This trade became actionable for the first time on the latest scan.</dd>
+    </dl>
+  </div>
+
+  <div class="gcard">
+    <h3>Scanner columns</h3>
+    <dl>
+      <dt>CMP</dt><dd>Current market price (last close).</dd>
+      <dt>Day %</dt><dd>Today's move vs the previous close.</dd>
+      <dt>Entry / Target band, Stop</dt>
+      <dd>The exact price zones from the strategy's Fibonacci geometry.</dd>
+      <dt>Vol ×</dt><dd>Today's volume as a multiple of its 20-day average.
+          <b class="volx">⚡ 2×+</b> is a volume spike — unusual participation.</dd>
+      <dt>R:R</dt><dd>Reward-to-risk from the worst entry: distance to target ÷ distance to stop.
+          Higher is better; it's the default sort.</dd>
+      <dt>To entry %</dt><dd>How far price must climb to reach the entry band
+          (negative = already at or above the band's low).</dd>
+      <dt>Confirmed</dt><dd>How long ago this trade first became actionable.</dd>
+    </dl>
+  </div>
+
+  <div class="gcard">
+    <h3>Active-tab columns</h3>
+    <dl>
+      <dt>Entered / Bars held</dt>
+      <dd>The trading day the entry fired, and how many daily bars the trade has been open.</dd>
+      <dt>R</dt><dd>Profit so far in units of initial risk: (CMP − entry) ÷ (entry − stop).
+          +1R means you've gained what you originally risked.</dd>
+      <dt>To target %</dt><dd>Remaining climb to the target band.</dd>
+      <dt>⚠ amber row</dt><dd>Price within 3% of the stop — review these first.</dd>
+    </dl>
+  </div>
+
+  <div class="gcard">
+    <h3>Tools & housekeeping</h3>
+    <dl>
+      <dt>⎘ Copy for TradingView</dt>
+      <dd>Copies the currently filtered symbols as <code>NSE:SYM,NSE:SYM,…</code> — paste into a
+          TradingView watchlist to import instantly (Download TXT is the same as a file).</dd>
+      <dt>Clicking a symbol</dt><dd>Opens its TradingView chart in a new tab.</dd>
+      <dt>LIVE · updated</dt><dd>When the data on screen was last generated. The scanner refreshes
+          itself after each scheduled scan; ⟳ Refresh forces one now.</dd>
+      <dt>T1/T2/T3/T4 chips</dt><dd>Filter to a single trade level across all stocks.</dd>
+    </dl>
+  </div>
+</div>
+
+<p class="foot">Informational and educational only — not financial advice. Signals are generated by
+an algorithm and can be wrong. You place any trades yourself, at your own risk.</p>
+{% endblock %}

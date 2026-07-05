@@ -125,18 +125,23 @@ def _enrich_row(r, df, sector):
         r["vol_x"] = round(float(df["Volume"].iloc[-1]) / avg, 2) if avg > 0 else None
     except Exception:
         r["vol_x"] = None
+    # per-trade R:R + distance (every swing is an independent trade on the dashboard)
+    for s in r.get("swings", []):
+        s["rr"] = s["dist_pct"] = None
+        try:
+            risk = s["entry_hi"] - s["sl"]               # worst entry vs stop
+            if risk > 0:
+                s["rr"] = round((s["tp_lo"] - s["entry_hi"]) / risk, 2)
+            if r.get("ltp"):
+                # +ve: price must still climb to reach the band; ~0/-ve: at or above band-low
+                s["dist_pct"] = round((s["entry_lo"] / r["ltp"] - 1.0) * 100, 2)
+        except Exception:
+            pass
+    # row-level copies mirror the active trade (backwards compatibility)
     r["rr"] = r["dist_pct"] = None
     act = next((s for s in r.get("swings", []) if s.get("swing") == r.get("active")), None)
     if act:
-        try:
-            risk = act["entry_hi"] - act["sl"]           # worst entry vs stop
-            if risk > 0:
-                r["rr"] = round((act["tp_lo"] - act["entry_hi"]) / risk, 2)
-            if r.get("ltp"):
-                # +ve: price must still climb to reach the band; ~0/-ve: at or above band-low
-                r["dist_pct"] = round((act["entry_lo"] / r["ltp"] - 1.0) * 100, 2)
-        except Exception:
-            pass
+        r["rr"], r["dist_pct"] = act["rr"], act["dist_pct"]
 
 
 _SIGNAL_STATE = "data/status/signal_state.json"
@@ -154,16 +159,20 @@ def _stamp_confirmed(market, scanner, rows):
     prefix = f"{market}:{scanner}:"
     live = set()
     for r in rows:
-        actionable = (r.get("in_band") or r.get("fired_entry")
-                      or r.get("active_state") == "IN") and not r.get("expired")
-        if not actionable:
+        if r.get("expired"):
             continue
-        k = f"{prefix}{r['sym']}:{r.get('active')}"
-        live.add(k)
-        if k not in seen:
-            seen[k] = now
-        r["confirmed_at"] = seen[k]
-        r["fresh"] = seen[k] == now
+        for s in r.get("swings", []):
+            actionable = s.get("state") == "IN" or (s.get("state") == "wait" and s.get("in_band"))
+            if not actionable:
+                continue
+            k = f"{prefix}{r['sym']}:{s['swing']}"
+            live.add(k)
+            if k not in seen:
+                seen[k] = now
+            s["confirmed_at"] = seen[k]
+            s["fresh"] = seen[k] == now
+            if s["swing"] == r.get("active"):          # row-level mirror (compat)
+                r["confirmed_at"], r["fresh"] = seen[k], seen[k] == now
     seen = {k: v for k, v in seen.items() if (not k.startswith(prefix)) or k in live}
     try:
         os.makedirs(os.path.dirname(_SIGNAL_STATE), exist_ok=True)
@@ -204,6 +213,7 @@ def scan_market(market, scanner="nsv2"):
     _stamp_confirmed(market, scanner, rows)
     return {
         "engine": f"{sc.name} ({sc.display}, faithful port)",
+        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "generated_for_date": str(pd.Timestamp.now(tz="America/New_York").date()),
         "data_asof": max(asof_dates) if asof_dates else None,
         "params": {k: sc.default_params[k] for k in _SCAN_PARAM_KEYS if k in sc.default_params},
