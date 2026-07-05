@@ -26,6 +26,7 @@ USAGE (schedule pre-market, ~08:30 IST, via setup_schedule.ps1):
 """
 import os
 import sys
+import time
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -79,11 +80,22 @@ def main():
     except Exception:
         from dhanhq.auth import DhanLogin
 
-    code = pyotp.TOTP(vals["DHAN_TOTP_SECRET"]).now()
-    resp = DhanLogin(vals["DHAN_CLIENT_ID"]).generate_token(vals["DHAN_PIN"], code)
-    token = _extract_token(resp)
+    totp = pyotp.TOTP(vals["DHAN_TOTP_SECRET"])
+    login = DhanLogin(vals["DHAN_CLIENT_ID"])
+    token, last = None, None
+    # TOTP codes live ~30s and Dhan rejects boundary/replayed codes ("Invalid TOTP") — seen in the
+    # wild with a synced clock. On failure, sleep into the NEXT code window and try a fresh code.
+    for attempt in range(1, 4):
+        resp = login.generate_token(vals["DHAN_PIN"], totp.now())
+        token = _extract_token(resp)
+        if token:
+            break
+        last = resp
+        wait = 30 - (time.time() % 30) + 1
+        print(f"  attempt {attempt} failed ({str(last)[:80]}); retrying with the next code in {wait:.0f}s …")
+        time.sleep(wait)
     if not token:
-        sys.exit(f"generate_token returned no recognizable access token: {str(resp)[:200]}")
+        sys.exit(f"generate_token returned no recognizable access token after 3 attempts: {str(last)[:200]}")
 
     # Rewrite .dhan_creds: replace (or add) DHAN_ACCESS_TOKEN, keep the secrets so the file stays
     # self-contained for the next refresh. Known keys first (stable order), then any extras.
