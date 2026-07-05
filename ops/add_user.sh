@@ -19,7 +19,8 @@ if [ "$1" = "--remove" ]; then
 fi
 
 USERNAME="$1"
-PASSWORD="${2:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)}"
+# bounded read first: piping /dev/urandom straight into head trips pipefail (SIGPIPE on tr)
+PASSWORD="${2:-$(head -c 400 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 20)}"
 HASH="$(caddy hash-password --plaintext "$PASSWORD")"
 sed -i "/^$USERNAME /d" "$USERS_FILE"          # replace if the user already exists
 echo "$USERNAME $HASH" >> "$USERS_FILE"

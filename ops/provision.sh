@@ -68,7 +68,8 @@ systemctl enable --now pinescan-token.timer pinescan-close-india.timer
 echo "== dashboard logins =="
 touch /etc/caddy/users.caddy && chmod 640 /etc/caddy/users.caddy && chgrp caddy /etc/caddy/users.caddy
 if ! grep -q . /etc/caddy/users.caddy; then
-    BOOTSTRAP_PW="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)"
+    # bounded read first: piping /dev/urandom straight into head trips pipefail (SIGPIPE on tr)
+    BOOTSTRAP_PW="$(head -c 400 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 20)"
     HASH="$(caddy hash-password --plaintext "$BOOTSTRAP_PW")"
     echo "krish $HASH" >> /etc/caddy/users.caddy
     echo ""
