@@ -35,7 +35,8 @@
     Market:
     {% for m in markets %}<a href="?market={{ m }}"{% if m == market %} style="font-weight:700;color:#fff"{% endif %}>{{ m|upper }}</a>{% endfor %}
     &nbsp;·&nbsp; Data: {{ data.last_date or 'none' }}{% if data.days_old is not none %} ({{ data.days_old }}d old){% endif %}
-    &nbsp;·&nbsp; Polygon {{ '✓' if data.keys.polygon else '✗' }} · Dhan {{ '✓' if data.keys.dhan else '✗' }}
+    {# data['keys'] not data.keys — the bare attribute resolves to dict.keys(), the method #}
+    &nbsp;·&nbsp; Polygon {{ '✓' if data['keys']['polygon'] else '✗' }} · Dhan {{ '✓' if data['keys']['dhan'] else '✗' }}
     &nbsp;·&nbsp; <span id="job">{{ job.msg }}</span>
     <form method="post" action="/refresh">
       <input type="hidden" name="market" value="{{ market }}">

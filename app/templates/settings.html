@@ -4,8 +4,9 @@
 <p class="muted">
   Data: {{ data.last_date or 'none yet' }}{% if data.days_old is not none %} ({{ data.days_old }} days old){% endif %} &middot;
   {{ data.n_cached }} files cached &middot;
-  Polygon key {{ 'set ✓' if data.keys.polygon else 'NOT set ✗' }} &middot;
-  Dhan creds {{ 'set ✓' if data.keys.dhan else 'NOT set ✗' }}
+  {# data['keys'] not data.keys — the bare attribute resolves to dict.keys(), the method #}
+  Polygon key {{ 'set ✓' if data['keys']['polygon'] else 'NOT set ✗' }} &middot;
+  Dhan token {{ 'set ✓' if data['keys']['dhan'] else 'NOT set ✗' }}
 </p>
 <form method="post" action="/settings/keys">
   <input type="hidden" name="market" value="{{ market }}">
@@ -14,7 +15,7 @@
   <h3>India &mdash; Dhan</h3>
   <p class="muted">Enter the three secrets below <b>once</b> &mdash; the app then creates the daily
     access token by itself (immediately after you save, and every morning 08:30 IST).
-    Auto-token: {{ 'ready ✓' if data.keys.dhan_auto else 'NOT configured ✗' }}</p>
+    Auto-token: {{ 'ready ✓' if data['keys']['dhan_auto'] else 'NOT configured ✗' }}</p>
   <label>Client ID: <input type="text" name="dhan_client_id" size="20" placeholder="leave blank to keep current"></label><br>
   <label>MPIN: <input type="password" name="dhan_pin" size="12" placeholder="unchanged"></label><br>
   <label>TOTP secret: <input type="password" name="dhan_totp_secret" size="40" placeholder="unchanged &mdash; the code from Dhan's 2FA setup"></label><br>
