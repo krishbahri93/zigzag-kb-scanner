@@ -1,0 +1,9 @@
+[Unit]
+Description=Every 15 min 09:00-15:45 IST weekdays; off-hours ticks are no-ops (full close run = pinescan-close-india 15:55)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09..15:0/15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

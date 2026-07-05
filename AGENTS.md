@@ -19,9 +19,9 @@ The phased master plan lives with the owner's Claude Code sessions
 | Phase | Deliverable | Status |
 |---|---|---|
 | 0 | Housekeeping: Pine sources committed, AGENTS.md + OWNER.md seeded | done (2026-07-05) |
-| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | done (2026-07-05); pending: healthchecks.io wiring + first unattended 08:30 mint |
-| 2 | Rich dashboard merged into the FastAPI app | pending |
-| 3 | Market-hours scanning 09:15–15:45 IST, provisional/confirmed states | pending |
+| 1 | Hosting: AWS Lightsail Mumbai, HTTPS + per-user auth, systemd timers, auto Dhan token, watchdogs | done (2026-07-05); formal close after first unattended 08:30 mint (2026-07-06) |
+| 2 | KWM dashboard: per-trade taxonomy, Scanner/Active/Target Hits/Stop Hits/Glossary tabs, mobile cards, SEBI disclaimer | done (2026-07-05, 3 iterations); Forward page facelift deferred to automation phase |
+| 3 | Market-hours scanning: 15-min live ticks 09:00–15:45 IST (in-memory partial bar, PROV badge), close run moved to 15:55 | in progress (2026-07-05) — first live-market validation Mon 2026-07-06 |
 | 4 | Telegram alerts | pending |
 | 5 | Short daily strategy port (parity-gated) + Long/Short toggle | pending |
 | 6 | Forward-test weekly/monthly/yearly views + trade rating | pending |
@@ -61,8 +61,9 @@ The phased master plan lives with the owner's Claude Code sessions
   at ~/.ssh/kwm-scanner.pem — NEVER in the repo).
 - **Layout:** code+venv+secrets+data at /opt/pinescan (user `pinescan`); units in
   /etc/systemd/system; Caddy config /etc/caddy/Caddyfile; backups /var/backups/pinescan.
-- **Timers:** pinescan-token 08:30 daily · pinescan-close-india 15:45 Mon-Fri ·
-  pinescan-backup 02:00 daily. Job outcomes land in data/status/last_runs.json.
+- **Timers:** pinescan-token 08:30 daily · pinescan-scan-india every 15 min 09:00–15:45 Mon-Fri
+  (live tick: partial bar merged in memory, never persisted) · pinescan-close-india 15:55 Mon-Fri
+  (official bars + forward test) · pinescan-backup 02:00 daily. Outcomes → data/status/last_runs.json.
 - **Gotcha:** raw.githubusercontent.com caches ~5 min — update the server via
   `git fetch && git reset` (deploy.sh does this), never by re-curling raw files.
 

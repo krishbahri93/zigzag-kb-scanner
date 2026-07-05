@@ -1,8 +1,8 @@
 [Unit]
-Description=Mon-Fri 15:45 IST India close run (server TZ is Asia/Kolkata)
+Description=Mon-Fri 15:55 IST India close run (after the last 15:45 intraday tick; server TZ is Asia/Kolkata)
 
 [Timer]
-OnCalendar=Mon..Fri 15:45:00
+OnCalendar=Mon..Fri 15:55:00
 Persistent=true
 
 [Install]

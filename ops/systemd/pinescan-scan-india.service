@@ -1,0 +1,11 @@
+[Unit]
+Description=India market-hours scan tick (live partial bar; scripts/intraday_scan.py)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pinescan
+WorkingDirectory=/opt/pinescan
+ExecStart=/opt/pinescan/scripts/job_wrapper.sh scan-india /opt/pinescan/venv/bin/python scripts/intraday_scan.py
+TimeoutStartSec=840

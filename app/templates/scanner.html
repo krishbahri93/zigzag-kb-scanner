@@ -39,8 +39,11 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     { k: "dist_pct",     t: "To entry %"  },
     { k: "confirmed_at", t: "Confirmed"   },
   ];
-  let trades = [], sortK = "rr", sortDir = -1, expanded = null, allRows = [];
+  let trades = [], sortK = "rr", sortDir = -1, expanded = null, allRows = [], LIVEBAR = false;
   const F = { sector: "", swing: "", q: "", vol: false, showAppr: false, sig: "" };
+  // during market hours the last bar is still forming: a same-bar Trigger is PROVISIONAL —
+  // "trading above entry but not CLOSED above it yet". It confirms (or reverts) at the close.
+  const isProv = t => LIVEBAR && t.sig === "Triggered" && t.bars_in_state <= 1;
 
   // "Entry" = the trigger price (band top, 0.382): the level whose daily-close crossing fires
   const val = (t, k) => k === "_entry" ? t.entry_hi
@@ -59,7 +62,10 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
 
   function badge(t) {
     const cls = t.sig === "Triggered" ? "b-trig" : t.sig === "In Zone" ? "b-zone" : "b-appr";
-    return `<span class="tn">${t.swing}</span><span class="badge ${cls}">${t.sig}</span>`;
+    const prov = isProv(t)
+      ? ' <span class="badge b-appr" title="Trading above entry intraday — not closed above yet. Confirms or reverts at 15:30.">PROV</span>'
+      : "";
+    return `<span class="tn">${t.swing}</span><span class="badge ${cls}">${t.sig}</span>${prov}`;
   }
 
   function render() {
@@ -198,12 +204,16 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     catch (e) { $("meta").textContent = "Could not load the scan — check the connection and refresh."; return; }
     if (!res.scan) { $("meta").textContent = "No scan yet — press Refresh to run the first one."; return; }
     allRows = res.scan.rows || [];
+    LIVEBAR = !!res.scan.live_bar;
     trades = K.flatten(res.scan);
     const todays = trades.filter(t => t.sig === "In Zone" || t.sig === "Triggered").length;
     const nAct = trades.filter(t => t.sig === "Active").length;
+    const liveTag = LIVEBAR
+      ? ` · <b style="color:var(--amber)">◉ LIVE BAR</b> <span class="muted">(signals confirm at the 15:30 close)</span>`
+      : "";
     $("meta").innerHTML = `Data as of ${res.scan.data_asof} · scanned ${res.scan.scanned_ok} of ` +
       `${res.scan.universe_size} symbols · <b>${todays}</b> to act on today · ` +
-      `<a href="/active?market=${K.MARKET}">${nAct} active trades →</a>`;
+      `<a href="/active?market=${K.MARKET}">${nAct} active trades →</a>${liveTag}`;
     const sectors = [...new Set(trades.filter(t => t.sig !== "Active").map(t => t.sector).filter(Boolean))].sort();
     $("fSector").innerHTML = '<option value="">All sectors</option>' +
       sectors.map(s => `<option${s === F.sector ? " selected" : ""}>${s}</option>`).join("");

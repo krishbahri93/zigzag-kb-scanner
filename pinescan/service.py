@@ -181,10 +181,14 @@ def _stamp_confirmed(market, scanner, rows):
         pass
 
 
-def scan_market(market, scanner="nsv2"):
+def scan_market(market, scanner="nsv2", live=False):
     """Run a scanner over a market's cached universe → the flat scan dict (same shape scan.py wrote).
     Reuses the registry scanner's scan_symbol + min_bars + default_params, so a new scanner works
-    here with no change."""
+    here with no change.
+
+    live=True (market-hours tick): merge TODAY'S intraday partial bar into each frame IN MEMORY
+    before scanning, so the engine sees live price action. Partial bars are NEVER persisted — the
+    parquet cache holds only official daily bars (the 15:55 close run writes those)."""
     sc = registry.get(scanner)
     syms, cache = _universe_cache(market)
     sectors = {}
@@ -193,6 +197,21 @@ def scan_market(market, scanner="nsv2"):
             _, sectors = india.get_universe()      # disk-cached weekly; {} if unavailable
         except Exception:
             sectors = {}
+
+    live_partials = 0
+    if live and market == "india":
+        today = dt.date.today()
+        for s in list(cache.keys()):
+            df = cache[s]
+            try:
+                if df is None or not len(df) or df.index[-1].date() >= today:
+                    continue                       # official bar already posted (or no data)
+                part = india.get_intraday(s)       # 1-row partial bar, or None (closed/holiday)
+                if part is not None and len(part):
+                    cache[s] = pd.concat([df, part])
+                    live_partials += 1
+            except Exception:
+                continue
     rows, scanned, asof_dates = [], 0, set()
     for s in syms:
         df = cache.get(s)
@@ -214,6 +233,8 @@ def scan_market(market, scanner="nsv2"):
     return {
         "engine": f"{sc.name} ({sc.display}, faithful port)",
         "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "live_bar": bool(live_partials),           # last bar is today's forming bar, not a close
+        "live_partials": live_partials,
         "generated_for_date": str(pd.Timestamp.now(tz="America/New_York").date()),
         "data_asof": max(asof_dates) if asof_dates else None,
         "params": {k: sc.default_params[k] for k in _SCAN_PARAM_KEYS if k in sc.default_params},
@@ -396,6 +417,23 @@ def refresh_market(market, on_progress=None):
     except Exception:
         pass
     return {"ok": True, "msg": f"Refreshed {market}."}
+
+
+def intraday_tick(market="india", scanner="nsv2"):
+    """One market-hours tick (the 15-min timer's job): scan the cached universe with today's
+    LIVE partial bar merged in memory, and cache the result for the dashboard. Deliberately
+    light: no data-cache writes, no forward test (both belong to the 15:55 close run). Outside
+    market hours every partial fetch returns None, so a tick degrades to a plain re-scan."""
+    if market != "india":
+        return {"ok": False, "msg": "intraday ticks are India-only for now"}
+    if not india.ensure_dhan_creds():
+        return {"ok": False, "msg": "No Dhan creds set — add them on Settings."}
+    scan = scan_market(market, scanner, live=True)
+    os.makedirs("data/results", exist_ok=True)
+    io_safe.atomic_write_text(_scan_path(market, scanner), json.dumps(scan, allow_nan=False))
+    return {"ok": True,
+            "msg": f"Live scan: {scan['live_partials']} live bars, "
+                   f"{scan['actionable_count']} actionable of {scan['setups_total']} setups."}
 
 
 def write_polygon_key(key):

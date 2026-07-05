@@ -56,6 +56,11 @@
           actionable moment.</dd>
       <dt><span class="badge b-trig">Triggered</span></dt>
       <dd>The entry fired on the latest daily bar — a brand-new system trade.</dd>
+      <dt><span class="badge b-appr">PROV</span> (during market hours)</dt>
+      <dd>The scanner updates every 15 minutes while the market is open, so today's bar is still
+          forming. A Trigger carrying PROV means price is <b>trading above entry but hasn't closed
+          above it</b> — it confirms (or quietly reverts) at the 15:30 close. The ◉ LIVE BAR tag in
+          the header shows when you're looking at a forming bar.</dd>
       <dt><span class="badge b-act">Active</span></dt>
       <dd>Entry fired on an earlier trading day — the trade is running. Managed on the Active tab.</dd>
       <dt><span class="freshdot"></span> Fresh</dt>
