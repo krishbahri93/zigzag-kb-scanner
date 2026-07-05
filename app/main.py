@@ -39,7 +39,7 @@ def _ctx(request, market):
 
 @app.get("/")
 def home():
-    return RedirectResponse("/scanner?market=us")
+    return RedirectResponse("/scanner?market=india")
 
 
 @app.get("/status")
@@ -52,19 +52,19 @@ def scanner_page(request: Request, market: str = "us", scanner: str = "nsv2"):
     ctx = _ctx(request, market)
     ctx["scanner"] = scanner
     ctx["scan"] = service.read_scan(market, scanner)   # cached (fast); None until the first Refresh
-    return templates.TemplateResponse("scanner.html", ctx)
+    return templates.TemplateResponse(request, "scanner.html", ctx)
 
 
 @app.get("/forward")
 def forward_page(request: Request, market: str = "us"):
     ctx = _ctx(request, market)
     ctx["fwd"] = service.read_forward(market)          # cached (fast); None until the first Refresh
-    return templates.TemplateResponse("forward.html", ctx)
+    return templates.TemplateResponse(request, "forward.html", ctx)
 
 
 @app.get("/settings")
 def settings_page(request: Request, market: str = "us"):
-    return templates.TemplateResponse("settings.html", _ctx(request, market))
+    return templates.TemplateResponse(request, "settings.html", _ctx(request, market))
 
 
 @app.post("/settings/keys")
