@@ -1,0 +1,9 @@
+[Unit]
+Description=Mon-Fri 16:30 New York time (systemd handles US DST) — US close run
+
+[Timer]
+OnCalendar=Mon..Fri 16:30 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

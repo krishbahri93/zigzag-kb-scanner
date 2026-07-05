@@ -66,7 +66,7 @@ cp "$APP_DIR"/ops/systemd/*.service "$APP_DIR"/ops/systemd/*.timer /etc/systemd/
 systemctl daemon-reload
 systemctl enable --now pinescan-web.service
 systemctl enable --now pinescan-token.timer pinescan-close-india.timer \
-    pinescan-scan-india.timer pinescan-backup.timer
+    pinescan-scan-india.timer pinescan-close-us.timer pinescan-backup.timer
 
 echo "== dashboard logins =="
 touch /etc/caddy/users.caddy && chmod 640 /etc/caddy/users.caddy && chgrp caddy /etc/caddy/users.caddy

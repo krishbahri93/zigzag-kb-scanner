@@ -389,7 +389,9 @@ def refresh_market(market, on_progress=None):
             return {"ok": False, "msg": "No Polygon key set — add it on Settings."}
         _say("Refreshing US (Polygon) — this can take a while on the first run …")
         syms, _ = us.select_liquid_universe()
-        us.backfill(syms, days=max(5, gap))
+        # brand-new install: nothing cached, so seed the full ~2y history (same trap the
+        # India path had — an empty cache must mean "download everything", not "top up 5 days")
+        us.backfill(syms, days=730 if st["n_cached"] == 0 else max(5, gap))
     else:
         if not india.ensure_dhan_creds():
             return {"ok": False, "msg": "No Dhan creds set — add them on Settings."}
