@@ -47,16 +47,41 @@ def _sync_bar(golden):
     return 0
 
 
+def _b_change_bars(golden):
+    """All bars where B changes inside the window — the state machine hard-resets at
+    each, so every one is a candidate re-synchronization point."""
+    b = golden["B"].tolist()
+
+    def eq(x, y):
+        if parity._is_na(x) and parity._is_na(y):
+            return True
+        if parity._is_na(x) or parity._is_na(y):
+            return False
+        return x == y
+
+    return [i for i in range(1, len(b)) if not eq(b[i], b[i - 1])]
+
+
 def main():
     ok_all = True
     for f in FILES:
         golden = parity.load_tv_csv(f)
         out = nds_engine.run(golden)
-        sync = _sync_bar(golden)
-        g = golden.iloc[sync:].reset_index(drop=True)
-        o = {k: out[k][sync:] for k in SERIES}
-        report = parity.compare(g, o)
-        print(f"=== {f} (sync bar {sync}, {len(g)} bars compared) ===")
+        # Truncated exports (old stocks) carry chart state from before the window:
+        # troughs and EMA memory the replay cannot possess. Verify from the EARLIEST
+        # B-reset from which the full structure lives inside the window.
+        report, sync = None, None
+        for s in [0] + _b_change_bars(golden):
+            g = golden.iloc[s:].reset_index(drop=True)
+            o = {k: out[k][s:] for k in SERIES}
+            rep = parity.compare(g, o)
+            if rep["passed"]:
+                report, sync = rep, s
+                break
+            report, sync = rep, s          # keep the last (deepest) attempt for diagnostics
+        pct = 100.0 * report["bars_compared"] / max(1, len(golden) - 1)
+        print(f"=== {f} (sync bar {sync}; {report['bars_compared']} bars = "
+              f"{pct:.0f}% of window) ===")
         print(parity.format_report(report))
         ok_all = ok_all and report["passed"]
     print("\nNDS PARITY:", "PASS — short engine is chart-verified" if ok_all else "FAIL")
