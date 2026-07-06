@@ -352,6 +352,10 @@ def main():
     cache = mkt.load_cache()
     cache = {s: df for s, df in cache.items() if df is not None and len(df) >= MIN_BARS}
     last_bar = max(df.index.max() for df in cache.values())
+    # The cache index is tz-aware (exchange time); a bare --train-end date is naive.
+    # Localize it to the data's tz so every date comparison speaks one language.
+    if last_bar.tz is not None and train_end.tz is None:
+        train_end = train_end.tz_localize(last_bar.tz)
     print(f"  {len(cache)} symbols with >= {MIN_BARS} bars, data through {last_bar.date()}")
     if last_bar <= train_end:
         sys.exit(f"ERROR: no validation window — data ends {last_bar.date()} <= "
