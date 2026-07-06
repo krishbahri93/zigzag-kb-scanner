@@ -12,10 +12,12 @@ from .. import nsv2_engine, nsv2_scanner
 
 register(Scanner(
     name="nsv2",
-    display="Nested Daily Long (V2)",   # -> "V2.1" when the retire-missed + seed-pivot rules land via parity
+    display="Nested Daily Long (V2.1)",
     description="Nested ZigZag swings with fib entry/target/stop bands (faithful Pine port).",
     timeframe="1D",
-    default_params=nsv2_engine.DEFAULTS,
+    # V2.1 rules ON for the live scanner (verified vs the NSE goldens); the engine
+    # DEFAULTS keep them off so the legacy 24-symbol golden masters stay the regression.
+    default_params=dict(nsv2_engine.DEFAULTS, retireMissed=True, seedPivotFix=True),
     min_bars=nsv2_scanner.MIN_BARS,
     run=nsv2_engine.run,
     swing_levels=nsv2_engine.swing_levels,

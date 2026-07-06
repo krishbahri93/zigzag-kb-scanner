@@ -58,8 +58,8 @@ def scan_symbol(sym, df, params=None):
         top_a = a                                     # highest present peak = last seen
         lv = nsv2_engine.swing_levels(a, b, p)
         sti = int(st) if st == st else 0
-        if active_idx is None and sti != 3:           # active = lowest swing not TP'd
-            active_idx = i
+        if active_idx is None and sti < 3:            # active = lowest swing still tradeable
+            active_idx = i                            # (3 = TP'd, 4 = missed — both terminal)
 
         # engine-truth age: trailing bars in the CURRENT state (ST history is bar-aligned),
         # and — for open trades — the bar date the entry fired (start of the IN run)
@@ -95,7 +95,7 @@ def scan_symbol(sym, df, params=None):
         swings.append({
             "swing": f"T{i + 1}",
             "A": _f(a),
-            "state": {1: "wait", 2: "IN", 3: "TP"}.get(sti, "-"),
+            "state": {1: "wait", 2: "IN", 3: "TP", 4: "missed"}.get(sti, "-"),
             "bars_in_state": bars_in,
             "entry_date": entry_date,
             "tp_date": tp_date,

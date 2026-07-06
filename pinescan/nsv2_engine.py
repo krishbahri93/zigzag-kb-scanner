@@ -62,6 +62,11 @@ DEFAULTS = {
     "volMult": 1.2,
     "useEmaFilter": True,
     "useVolFilter": True,
+    # --- V2.1 rules (Pine "Nested Daily Long V2.1", 2026-07-06). Default OFF so the
+    # original 24-symbol US golden masters still verify the legacy behavior; the scanner
+    # registry turns them ON (and is verified against the V2.1 NSE goldens).
+    "retireMissed": False,   # waiting trade whose whole target zone price closed above -> state 4
+    "seedPivotFix": False,   # trust the seed pivot's geometric direction (see _nested_peaks)
 }
 
 
@@ -132,7 +137,7 @@ def _b_from_points(points):
 # ---------------------------------------------------------------------------
 # nested-peak walk — nearest-first from B  (Pine 141-226)
 # ---------------------------------------------------------------------------
-def _nested_peaks(points, b_price, b_idx, min_gap_pct, max_swings):
+def _nested_peaks(points, b_price, b_idx, min_gap_pct, max_swings, seed_fix=False):
     """Walk the pivot points newest->oldest, keeping the staircase of nested
     peaks above B. Returns (peaks, kept) where peaks is a list of (price, idx)
     for the kept slots k0..k(kept-1).
@@ -163,9 +168,11 @@ def _nested_peaks(points, b_price, b_idx, min_gap_pct, max_swings):
             # start pushed with ptH=down). The library's FIRST pivot is a degenerate
             # Pivot(start==end) (newPivotPointFound first-pivot branch, lib P:316-318),
             # so down=false and the oldest point is classified a LOW even when it is a
-            # pivot high. Replicate that: idx 0 (oldest point) is never a peak — else a
-            # stale far-back first high becomes a phantom T1 (QBTS/ONDS/RGTI/CLSK).
-            is_high = points[idx][2] and idx != 0
+            # pivot high. Legacy (seed_fix=False) replicates that: idx 0 is never a peak
+            # (matches the original V2 chart on QBTS/ONDS/RGTI/CLSK). V2.1 (seed_fix=True)
+            # mirrors the Pine's seed-pivot fix: direction inferred from the leaving
+            # segment — which equals this detector's own geometric flag (the ITCHOTELS fix).
+            is_high = points[idx][2] and (seed_fix or idx != 0)
             if is_high:
                 if pr > b_price * gap_mul:
                     if last_kept is None:
@@ -316,7 +323,8 @@ def run(df, params=None):
             p_pts = piv_p.points()
             if len(p_pts) >= 1:
                 peaks, kept = _nested_peaks(p_pts, B_price, B_time,
-                                            p["minGapPct"], p["maxSwings"])
+                                            p["minGapPct"], p["maxSwings"],
+                                            seed_fix=p["seedPivotFix"])
                 A = [None, None, None, None]
                 for i in range(kept):
                     A[i] = peaks[i][0]
@@ -346,6 +354,10 @@ def run(df, params=None):
                 ns_, ef, tf, sf = step_trade(st[i], lv["eH"], lv["tL"], lv["sl"],
                                              ema_ok, vol_ok, c, c_prev, high[k])
                 st[i] = ns_
+                # V2.1: retire a MISSED trade — still WAITING while price closed above its
+                # whole target zone; terminal state 4, the spotlight moves on (Pine V2.1).
+                if p["retireMissed"] and st[i] == 1 and c > lv["tH"]:
+                    st[i] = 4
                 any_e = any_e or ef
                 any_t = any_t or tf
                 any_x = any_x or sf
