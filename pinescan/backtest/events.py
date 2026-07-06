@@ -119,8 +119,20 @@ def trades_for(symbol, df, scanner="nsv2", params=None):
 
     # The engine accepts either Title-case or TradingView-lower OHLCV; mirror that
     # when reading the fill price so trades_for works on whatever the caller passed.
-    close_col = "Close" if "Close" in df.columns else "close"
-    closes = df[close_col]
+    def _series(*names):
+        for nm in names:
+            if nm in df.columns:
+                return df[nm]
+        return None
+
+    closes = _series("Close", "close")
+    opens = _series("Open", "open")
+    highs = _series("High", "high")
+    lows = _series("Low", "low")
+    vols = _series("Volume", "volume")
+    # 20-bar volume SMA for the relative-volume entry filter (display/filter feature
+    # only — the engine's own volume filter stays inside the parity-locked engine)
+    vol_sma20 = vols.rolling(20).mean() if vols is not None else None
     index = df.index
 
     trades = []
@@ -146,15 +158,42 @@ def trades_for(symbol, df, scanner="nsv2", params=None):
             lv = sc.swing_levels(a_price, b_price, p)
             exit_date, outcome = _natural_exit(st_series, k, index)
 
+            # --- signal-bar evidence for the Automation Lab's entry filters ---
+            bar_c = float(closes.iloc[k])
+
+            def _f(series, kk=k):
+                if series is None:
+                    return None
+                v = series.iloc[kk]
+                return None if (v != v) else float(v)   # NaN-safe
+
+            bar_o, bar_h, bar_l = _f(opens), _f(highs), _f(lows)
+            rng = (bar_h - bar_l) if (bar_h is not None and bar_l is not None) else None
+            candle_pos = ((bar_c - bar_l) / rng) if (rng is not None and rng > 0) else None
+            risk = bar_c - lv["sl"]
+            rr_remaining = ((lv["tL"] - bar_c) / risk) if risk > 0 else None
+            has_next = k + 1 < len(index)
+
             trades.append(Trade(
                 symbol=symbol,
                 swing=f"T{i + 1}",
                 entry_date=index[k],
-                entry_price=float(closes.iloc[k]),
+                entry_price=bar_c,
                 target=lv["tL"],          # 0.618 take-profit
                 sl=lv["sl"],              # 0.236 stop
                 natural_exit_date=exit_date,
                 natural_outcome=outcome,
+                sig_open=bar_o,
+                sig_high=bar_h,
+                sig_low=bar_l,
+                sig_volume=_f(vols),
+                vol_avg20=_f(vol_sma20),
+                vol_prev=_f(vols, k - 1) if k > 0 else None,
+                candle_pos=candle_pos,
+                is_green=(bar_c > bar_o) if bar_o is not None else None,
+                rr_remaining=rr_remaining,
+                next_open=_f(opens, k + 1) if has_next else None,
+                next_date=index[k + 1] if has_next else None,
             ))
 
     # Across-swing emission order is by swing index; the simulator wants a single

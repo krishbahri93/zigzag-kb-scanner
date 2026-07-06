@@ -19,7 +19,7 @@ HOW TO EXTEND
 """
 import json
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # category -> {rule_name -> rule class}. Populated by the @register decorator.
 RULES = {"sizing": {}, "selection": {}, "rotation": {}, "exit": {}}
@@ -72,6 +72,9 @@ class Policy:
     rotation_params: dict        # params for the rotation rule (e.g. start/step/max)
     exit: str
     costs: dict                 # {brokerage_pct, slippage_pct, stt_pct}
+    # Automation Lab: selection/exit rules are parametric too (entry filters, dynamic exits)
+    selection_params: dict = field(default_factory=dict)
+    exit_params: dict = field(default_factory=dict)
 
 
 def load_policy(path):
@@ -89,6 +92,8 @@ def load_policy(path):
         selection=d["selection"]["rule"],
         rotation=d["rotation"]["rule"], rotation_params=d["rotation"].get("params", {}),
         exit=d["exit"]["rule"], costs=d.get("costs", {}),
+        selection_params=d["selection"].get("params", {}),
+        exit_params=d["exit"].get("params", {}),
     )
 
 
@@ -97,13 +102,14 @@ def build_rules(policy):
     return {"sizing","selection","rotation","exit"} for the simulator.
 
     Param convention (keep rule __init__ signatures matching these):
-      sizing(total_capital=, **sizing_params) · selection() · rotation(**rotation_params) · exit()
+      sizing(total_capital=, **sizing_params) · selection(**selection_params) ·
+      rotation(**rotation_params) · exit(**exit_params)
     Raises KeyError (via get_rule) on an unknown rule name.
     """
     return {
         "sizing": get_rule("sizing", policy.sizing)(
             total_capital=policy.total_capital, **policy.sizing_params),
-        "selection": get_rule("selection", policy.selection)(),
+        "selection": get_rule("selection", policy.selection)(**policy.selection_params),
         "rotation": get_rule("rotation", policy.rotation)(**policy.rotation_params),
-        "exit": get_rule("exit", policy.exit)(),
+        "exit": get_rule("exit", policy.exit)(**policy.exit_params),
     }

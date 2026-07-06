@@ -13,3 +13,4 @@ ADD AN EXIT RULE
   3. name it under "exit" in a policy JSON
 """
 from . import scanner_default  # noqa: F401  (imported only for its @register side effect)
+from . import lab_exits        # noqa: F401  (Automation Lab: early target / breakeven / trail)

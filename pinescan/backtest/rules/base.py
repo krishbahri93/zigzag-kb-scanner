@@ -50,7 +50,20 @@ class RotationRule(Rule):
 
 class ExitRule(Rule):
     """Optional EXTRA exit on top of V2's own TP/SL (which always apply). Default does
-    nothing; override for e.g. a time-based or trailing exit."""
+    nothing; override for e.g. a time-based or trailing exit.
+
+    Dynamic exits (Automation Lab): set `is_dynamic = True` and override `check()`.
+    The simulator then calls check() every day for every open position, AFTER the
+    natural V2 TP/SL pass (V2's own exit wins its own date), handing it the day's
+    bar. The rule may mutate the position's runtime state (peak_close, stop_now)."""
+    is_dynamic = False
+
     def should_exit(self, position, price, date):
-        """Return True to force-close `position` today at `price`. Default: never."""
+        """Legacy hook (unused by the simulator). Kept for compatibility."""
         return False
+
+    def check(self, position, bar_open, bar_high, bar_low, bar_close, date):
+        """Return None to hold, or (fill_price, reason) to close today. Only called
+        when `is_dynamic` is True. bar_open/high/low may be None on sparse data —
+        implementations must tolerate that."""
+        return None

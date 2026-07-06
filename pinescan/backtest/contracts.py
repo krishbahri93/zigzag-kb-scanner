@@ -34,6 +34,22 @@ class Trade:
     natural_exit_date: Optional[pd.Timestamp] = None  # bar V2 hit TP/SL; None = open at data end
     natural_outcome: str = "open"    # "tp" | "sl" | "open"
 
+    # --- signal-bar evidence (Automation Lab) -------------------------------------
+    # Captured by events.py AT the entry bar, so entry-filter rules can replay
+    # Krish's 3:20 PM judgment (candle strength, relative volume, remaining R:R)
+    # without ever re-running the engine. All optional: absent on old callers.
+    sig_open: Optional[float] = None
+    sig_high: Optional[float] = None
+    sig_low: Optional[float] = None
+    sig_volume: Optional[float] = None
+    vol_avg20: Optional[float] = None       # 20-bar volume SMA at the signal bar
+    vol_prev: Optional[float] = None        # previous bar's volume
+    candle_pos: Optional[float] = None      # (close-low)/(high-low); None on zero-range bars
+    is_green: Optional[bool] = None         # close > open on the signal bar
+    rr_remaining: Optional[float] = None    # (target-close)/(close-sl); None if risk <= 0
+    next_open: Optional[float] = None       # NEXT bar's open — the E5 alternative fill
+    next_date: Optional[pd.Timestamp] = None
+
 
 @dataclass
 class Position:
@@ -44,6 +60,10 @@ class Position:
     notional: float                  # rupees allocated to this position
     qty: float                       # notional / entry_price (shares)
     opened: pd.Timestamp             # date the simulator opened it (>= trade.entry_date)
+    # --- dynamic-exit runtime state (Automation Lab; owned by the exit pass) ------
+    fill_price: float = 0.0          # actual fill (close or next-open variant); 0 -> trade.entry_price
+    peak_close: float = 0.0          # highest close since entry (trailing anchor)
+    stop_now: float = 0.0            # current effective stop; 0 -> trade.sl (BE/trail only raise it)
 
 
 @dataclass

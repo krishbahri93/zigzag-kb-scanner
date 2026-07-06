@@ -124,7 +124,8 @@ def _close_priced(pf, costs, symbol, price, date, outcome):
     return ct
 
 
-def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
+def run_backtest(cache, policy, window_start=None, trades=None,
+                 window_end=None, entry_fill="close") -> Result:
     """Replay one policy over a cache of daily bars and return its scored Result.
 
     window_start (optional pd.Timestamp/date): confine TRADING to dates >= this, while
@@ -132,6 +133,15 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
     last 6 weeks) stays meaningful — the engine keeps the warmup it needs to find setups,
     but only entries from window_start onward are taken and the equity curve starts there.
     None = trade the whole history.
+
+    window_end (optional, Automation Lab): stop TRADING after this date — the
+    train/validate walk-forward split. Entries and bars beyond it are ignored;
+    whatever is still open is closed at the window's last bar ("open_at_end").
+
+    entry_fill ("close" | "next_open", Automation Lab): "close" fills at the signal
+    bar's close (Krish's 3:20 PM behaviour — the default and historical assumption);
+    "next_open" defers each entry to the NEXT bar's open (buy after confirmation),
+    using the fill the Trade captured at detection time.
 
     Args:
         cache:  {symbol -> daily OHLCV DataFrame}. Each df must carry a "Close" column
@@ -164,23 +174,44 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
     # None, detect them here. Either way we still build close_series from the cache.
     all_trades: List = list(trades) if trades is not None else []
     close_series = {}
+    open_series = {}
+    high_series = {}
+    low_series = {}
     for sym, df in cache.items():
         if trades is None:
             all_trades += events.trades_for(sym, df)
         close_series[sym] = df["Close"]       # indexed by df.index (dates)
+        # dynamic exits (Automation Lab) need the day's full bar; fall back to Close
+        # for caches that only carry closes (behaviour then degrades gracefully)
+        open_series[sym] = df["Open"] if "Open" in df.columns else df["Close"]
+        high_series[sym] = df["High"] if "High" in df.columns else df["Close"]
+        low_series[sym] = df["Low"] if "Low" in df.columns else df["Close"]
+
+    # Entry-fill variant: each Trade knows both its fill styles (captured at detection).
+    # "next_open" trades fire on their NEXT bar at its open; ones with no next bar drop.
+    def _fire_date(t):
+        return t.next_date if entry_fill == "next_open" else t.entry_date
+
+    def _fire_price(t):
+        return t.next_open if entry_fill == "next_open" else t.entry_price
+
+    if entry_fill == "next_open":
+        all_trades = [t for t in all_trades if t.next_date is not None and t.next_open is not None]
 
     # Window: setups were detected on FULL history above; here we keep only entries that
-    # fire from window_start onward, so a short run trades only inside its timeframe while
-    # still benefiting from the warmup. None = trade everything.
+    # FIRE (at their fill date) inside [window_start, window_end]. None = unbounded.
     if window_start is not None:
         window_start = pd.Timestamp(window_start)
-        all_trades = [t for t in all_trades if t.entry_date >= window_start]
+        all_trades = [t for t in all_trades if _fire_date(t) >= window_start]
+    if window_end is not None:
+        window_end = pd.Timestamp(window_end)
+        all_trades = [t for t in all_trades if _fire_date(t) <= window_end]
 
     # Index the trades by the day they fire, so each loop day pulls its entries in O(1).
     # A defaultdict keeps insertion order within a day (stable -> deterministic runs).
     entries_by_date = defaultdict(list)
     for t in all_trades:
-        entries_by_date[t.entry_date].append(t)
+        entries_by_date[_fire_date(t)].append(t)
 
     # Engine tallies the report surfaces: how often a signal couldn't be funded, and how
     # often rotation freed a slot. metrics.summarize() passes these straight through.
@@ -194,6 +225,8 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
     dates = list(timeline)
     if window_start is not None:
         dates = [d for d in dates if d >= window_start]
+    if window_end is not None:
+        dates = [d for d in dates if d <= window_end]
     if not dates:                              # window contains no bars -> empty run
         return Result(policy.name, [], [], counters,
                       metrics.summarize([], [], policy.total_capital, counters))
@@ -209,6 +242,25 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
                 fill = t.target if t.natural_outcome == "tp" else t.sl
                 _close_priced(pf, costs, sym, fill, t.natural_exit_date, t.natural_outcome)
 
+        # (a2) DYNAMIC EXITS (Automation Lab) — the policy's exit rule sees today's bar
+        # for every position that survived the natural pass, and may close it (early
+        # target / breakeven / trailing stop). V2's own TP/SL always had first claim.
+        exit_rule = rules["exit"]
+        if getattr(exit_rule, "is_dynamic", False):
+            for sym, pos in list(pf.positions.items()):
+                bar_c = _price_on(close_series.get(sym), d)
+                if bar_c is None:
+                    continue                               # no bar today -> nothing to judge
+                res = exit_rule.check(
+                    pos,
+                    _price_on(open_series.get(sym), d),
+                    _price_on(high_series.get(sym), d),
+                    _price_on(low_series.get(sym), d),
+                    bar_c, d)
+                if res is not None:
+                    fill, reason = res
+                    _close_priced(pf, costs, sym, fill, d, reason)
+
         # (b) ENTRIES — every V2 entry that fired today, in firing order.
         for t in entries_by_date.get(d, []):
             if t.symbol in pf.positions:
@@ -216,13 +268,14 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
             if not rules["selection"].should_take(pf, t):
                 continue                                   # policy vetoed this signal
             size = rules["sizing"].position_size(pf, t)
-            price = _price_on(close_series.get(t.symbol), d)
+            price = _fire_price(t)                         # the trade's own recorded fill
             if price is None:
-                continue                                   # no bar to fill against today
+                continue                                   # no fill available
 
             has_room = pf.can_afford(size) and len(pf.positions) < policy.max_concurrent
             if has_room:
                 _open_priced(pf, costs, t, size, price, d)
+                pf.positions[t.symbol].fill_price = price  # dynamic-exit anchor
             else:
                 # Full or short on cash -> ask the rotation rule to free a slot. Hand it
                 # today's price for each open position so it can score distance-to-target.
@@ -238,6 +291,7 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
                 # Re-test capacity now that rotation may have freed cash AND a slot.
                 if pf.can_afford(size) and len(pf.positions) < policy.max_concurrent:
                     _open_priced(pf, costs, t, size, price, d)
+                    pf.positions[t.symbol].fill_price = price   # dynamic-exit anchor
                 else:
                     counters["signals_skipped_no_cash"] += 1
 
@@ -254,7 +308,9 @@ def run_backtest(cache, policy, window_start=None, trades=None) -> Result:
     # the equity curve and trade ledger are complete. outcome "open_at_end" tells
     # metrics/report this exit was forced by the data ending, not by a V2 signal.
     for sym, pos in list(pf.positions.items()):
-        last = float(close_series[sym].iloc[-1])
+        s = close_series[sym]
+        inside = s[s.index <= dates[-1]]       # window_end-safe: never price beyond the window
+        last = float(inside.iloc[-1]) if len(inside) else float(s.iloc[-1])
         _close_priced(pf, costs, sym, last, dates[-1], "open_at_end")
 
     return Result(

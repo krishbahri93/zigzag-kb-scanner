@@ -13,3 +13,4 @@ ADD A SELECTION RULE
   3. name it under "selection" in a policy JSON
 """
 from . import free_capital_first  # noqa: F401  (imported only for its @register side effect)
+from . import entry_filters       # noqa: F401  (Automation Lab: Krish's signal-day judgment)
