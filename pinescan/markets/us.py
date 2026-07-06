@@ -217,6 +217,10 @@ def backfill(symbols, days=730, progress_every=10):
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     symset = set(symbols)
+    if not symset:
+        # a failed universe selection once cascaded into 521 empty parquets — never again
+        print("  backfill: EMPTY symbol list — refusing to run (fix the universe first)")
+        return
     dates = _weekdays(days)
     total = len(dates)
     done = fetched = 0
@@ -236,8 +240,14 @@ def backfill(symbols, days=730, progress_every=10):
         keep = [{"T": r["T"], "o": r.get("o"), "h": r.get("h"), "l": r.get("l"),
                  "c": r.get("c"), "v": r.get("v"), "t": r.get("t")}
                 for r in rows if r.get("T") in symset]
+        if rows and not keep:
+            # the market traded but NONE of our symbols matched -> selection/key problem;
+            # persisting this would mark the date "done" forever. Skip; resume retries it.
+            print(f"    {d}: {len(rows)} rows but 0 matched our universe — NOT caching")
+            time.sleep(RATE_SLEEP)
+            continue
         cols = ["T", "o", "h", "l", "c", "v", "t"]
-        io_safe.atomic_to_parquet(pd.DataFrame(keep, columns=cols), fp, index=False)  # crash-safe; empty on holidays
+        io_safe.atomic_to_parquet(pd.DataFrame(keep, columns=cols), fp, index=False)  # crash-safe; empty only on holidays
         fetched += 1
         if done % progress_every == 0 or done == total:
             print(f"    backfill {done}/{total} ({fetched} fetched) … {d} "
