@@ -15,7 +15,10 @@ def test_nsv2_self_registered_and_wraps_engine():
     assert "nsv2" in registry.list_scanners()
     sc = registry.get("nsv2")                       # default name is "nsv2"
     assert sc.run is nsv2_engine.run                # the registered run IS the engine (byte-identical)
-    assert sc.default_params is nsv2_engine.DEFAULTS
+    # the LIVE scanner runs the chart-verified V2.1 rules ON TOP of the engine defaults
+    # (engine DEFAULTS keep them off so the legacy golden masters stay valid as regression)
+    assert sc.default_params == dict(nsv2_engine.DEFAULTS,
+                                     retireMissed=True, seedPivotFix=True)
     assert sc.swing_levels is nsv2_engine.swing_levels
 
 

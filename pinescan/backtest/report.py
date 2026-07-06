@@ -163,14 +163,17 @@ def english_tree(policy, currency="₹") -> str:
     """
     rules = build_rules(policy)  # live instances -> their .description is what ran
 
-    # Fill each description with exactly the params build_rules passed that rule:
-    #   sizing got **sizing_params · rotation got **rotation_params · the others got
-    #   nothing. .format() with no matching placeholders is a harmless no-op, so the two
-    #   placeholder-free rules (selection/exit) pass through unchanged.
-    sizing_desc = rules["sizing"].description.format(currency=currency, **policy.sizing_params)
-    selection_desc = rules["selection"].description.format()
-    rotation_desc = rules["rotation"].description.format(**policy.rotation_params)
-    exit_desc = rules["exit"].description.format()
+    # Fill each description from the LIVE instance's own attributes — the settings that
+    # actually ran, including defaults for params the policy omitted (the lab's
+    # entry_filters/lab_exits legs are all optional). Formatting from the instance
+    # rather than the policy dict means an omitted param can never KeyError.
+    def _filled(rule, **extra):
+        return rule.description.format(**{**vars(rule), **extra})
+
+    sizing_desc = _filled(rules["sizing"], currency=currency)
+    selection_desc = _filled(rules["selection"])
+    rotation_desc = _filled(rules["rotation"])
+    exit_desc = _filled(rules["exit"])
 
     capital_line = (
         f"{_fmt_money(policy.total_capital, currency)} · "

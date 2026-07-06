@@ -1,0 +1,10 @@
+{
+  "name": "lab_krish_manual",
+  "description": "Krish's current discretionary judgment, encoded: take a signal only on a strong green candle (close in the top 40% of the day's range) with volume above the previous day and at least 1:1 reward-to-risk remaining; bank the win early at 70% of the run to the target. Rs 2L equal sizing, no rotation. The human benchmark every automated combo must beat.",
+  "capital": {"total": 2000000, "max_concurrent": 10},
+  "sizing": {"rule": "fixed_amount", "params": {"amount": 200000}},
+  "selection": {"rule": "entry_filters", "params": {"min_candle_pos": 0.6, "green_only": true, "rel_vol": "gt_prev", "min_rr": 1.0}},
+  "rotation": {"rule": "none"},
+  "exit": {"rule": "lab_exits", "params": {"early_pct": 70}},
+  "costs": {"brokerage_pct": 0.03, "slippage_pct": 0.05, "stt_pct": 0.025}
+}

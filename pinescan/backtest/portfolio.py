@@ -101,9 +101,13 @@ class Portfolio:
         closed = ClosedTrade(
             symbol=symbol,
             swing=trade.swing,
-            entry_date=trade.entry_date,
+            # Book what the ACCOUNT did, not what the signal said: pos.opened is the day
+            # the simulator filled, notional/qty is the actual fill price. Identical to
+            # trade.entry_date/entry_price for close-fills (every legacy run); they
+            # differ only under the lab's entry_fill="next_open" variant.
+            entry_date=pos.opened,
             exit_date=date,
-            entry_price=trade.entry_price,
+            entry_price=pos.notional / pos.qty,
             exit_price=price,
             notional=pos.notional,
             pnl=pnl,
