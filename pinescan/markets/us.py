@@ -146,8 +146,10 @@ def select_liquid_universe(n=1000, min_price=5.0, force=False):
     """
     if not force and os.path.exists(UNIVERSE_FILE):
         d = json.load(open(UNIVERSE_FILE))
-        print(f"  universe: loaded {len(d['symbols'])} symbols from {UNIVERSE_FILE}")
-        return d["symbols"], d["sectors"]
+        if d.get("symbols"):                  # an EMPTY cached selection is a failed selection
+            print(f"  universe: loaded {len(d['symbols'])} symbols from {UNIVERSE_FILE}")
+            return d["symbols"], d["sectors"]
+        print("  universe: cached selection is EMPTY (failed run) — re-selecting …")
 
     cs = load_cs_tickers()
     day = _recent_weekday()
@@ -165,6 +167,10 @@ def select_liquid_universe(n=1000, min_price=5.0, force=False):
     # Sector: the reference endpoint doesn't carry SIC; use "-" for now
     # (dashboard tolerates it). Real sector mapping is a later enhancement.
     sectors = {t: "-" for t in symbols}
+    if not symbols:
+        # never PERSIST a failed selection — the next caller must retry, not inherit zero
+        print("  universe: selection came back EMPTY (throttle/outage?) — NOT caching it")
+        return symbols, sectors
     os.makedirs(os.path.dirname(UNIVERSE_FILE), exist_ok=True)   # data/ is gitignored: create on first run
     io_safe.atomic_write_text(UNIVERSE_FILE, json.dumps({"symbols": symbols, "sectors": sectors}))
     print(f"  universe: selected {len(symbols)} liquid names (>= ${min_price}, "
