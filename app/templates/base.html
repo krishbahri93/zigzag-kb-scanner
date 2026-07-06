@@ -39,7 +39,8 @@
           else if (s.state === "wait") sig = s.in_band ? "In Zone" : (s.approaching ? "Approaching" : null);
           if (!sig) return;
           out.push(Object.assign({}, s, {
-            sym: r.sym, sector: r.sector || "", ltp: r.ltp, day_pct: r.day_pct,
+            sym: r.sym, sector: r.sector || "", name: r.name || "",
+            ltp: r.ltp, day_pct: r.day_pct,
             vol_x: r.vol_x, asof: r.asof, B: r.B, sig: sig,
           }));
         });
@@ -132,6 +133,7 @@
   .jobmsg { font-size:12px; color:var(--muted); }
 
   main { max-width:1200px; margin:0 auto; padding:16px; }
+  .hello { font-size:14px; font-weight:600; color:var(--accent-deep); margin:0 0 10px; }
   h1 { font-size:20px; } h2 { font-size:16px; margin-top:22px; } h3 { font-size:14px; margin:14px 0 4px; }
 
   /* ---------- shared components ---------- */
@@ -242,7 +244,7 @@
     </span>
   </div>
 </header>
-<main>{% block content %}{% endblock %}</main>
+<main>{% if greet %}<div class="hello">{{ greet }}</div>{% endif %}{% block content %}{% endblock %}</main>
 <footer style="max-width:1200px;margin:0 auto;padding:0 16px 20px;font-size:11.5px;color:var(--muted)">
   Private personal-research tool · <b>Not a SEBI-registered Investment Adviser or Research Analyst</b> ·
   nothing here is investment advice — <a href="/glossary?market={{ market }}#disclaimer">full disclaimer</a>.

@@ -196,12 +196,15 @@ def scan_market(market, scanner="nsv2", live=False):
     parquet cache holds only official daily bars (the 15:55 close run writes those)."""
     sc = registry.get(scanner)
     syms, cache = _universe_cache(market)
-    sectors = {}
+    sectors, names = {}, {}
     if market == "india":
         try:
             _, sectors = india.get_universe()      # disk-cached weekly; {} if unavailable
         except Exception:
             sectors = {}
+        names = india.get_names()
+    else:
+        names = us.get_names()
 
     # during a live tick, judge today's PARTIAL volume against the session fraction elapsed
     # (NSE cash session 09:15-15:30 = 375 min); a full-day comparison reads ~0x all morning
@@ -236,6 +239,7 @@ def scan_market(market, scanner="nsv2", live=False):
         scanned += 1
         if r is not None:
             _enrich_row(r, cache[s], sectors.get(s), vol_frac)   # cache[s] includes the live bar
+            r["name"] = names.get(s, "")
             rows.append(r)
             asof_dates.add(r["asof"])
     rows.sort(key=lambda r: (not r["in_band"], not r["approaching"], -(r["n_swings"])))

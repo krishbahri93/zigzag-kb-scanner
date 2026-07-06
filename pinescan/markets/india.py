@@ -59,13 +59,15 @@ def load_nifty500():
         d = pd.read_csv(io.StringIO(txt))
         sym = d["Symbol"].astype(str).str.strip()
         ind = d["Industry"].astype(str).str.strip()
-        return sym.tolist(), dict(zip(sym, ind))
+        nm = (d["Company Name"].astype(str).str.strip()
+              if "Company Name" in d.columns else sym)
+        return sym.tolist(), dict(zip(sym, ind)), dict(zip(sym, nm))
     except Exception as e:
         print(f"Could not fetch NSE Nifty 500 list ({e}); using shortlist.")
         fb = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "BHARTIARTL",
               "ITC", "LT", "HINDUNILVR", "KOTAKBANK", "AXISBANK", "BAJFINANCE", "MARUTI",
               "SUNPHARMA", "TATAMOTORS", "TITAN", "ULTRACEMCO", "ASIANPAINT", "NESTLEIND"]
-        return fb, {}
+        return fb, {}, {}
 
 
 # ============================================================================
@@ -310,15 +312,27 @@ def get_universe(max_age_days=7):
                 return d["symbols"], d.get("sectors", {})
     except Exception:
         pass
-    syms, sectors = load_nifty500()
+    syms, sectors, names = load_nifty500()
     if sectors:                                   # never cache the 20-stock fallback
         try:
             os.makedirs(os.path.dirname(_UNIVERSE_CACHE_FILE), exist_ok=True)
             io_safe.atomic_write_text(_UNIVERSE_CACHE_FILE,
-                                      json.dumps({"symbols": syms, "sectors": sectors}))
+                                      json.dumps({"symbols": syms, "sectors": sectors,
+                                                  "names": names}))
         except Exception:
             pass
     return syms, sectors
+
+
+def get_names():
+    """{symbol: company name} from the cached universe file ({} until the cache next
+    refreshes with names). Display-only — callers must tolerate missing entries."""
+    import json
+    try:
+        d = json.loads(open(_UNIVERSE_CACHE_FILE, encoding="utf-8").read())
+        return d.get("names", {}) or {}
+    except Exception:
+        return {}
 
 
 def get_daily(symbol):

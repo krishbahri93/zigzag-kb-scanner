@@ -122,6 +122,16 @@ def load_cs_tickers():
     return out
 
 
+def get_names():
+    """{symbol: company name} from the cached universe file ({} until the selection next
+    refreshes with names). Display-only — callers must tolerate missing entries."""
+    try:
+        d = json.load(open(UNIVERSE_FILE))
+        return d.get("names", {}) or {}
+    except Exception:
+        return {}
+
+
 def _grouped_daily(date_str):
     """One Grouped-Daily call → list of {T,o,h,l,c,v,t,...} for every ticker on
     that date. Empty list on weekends/holidays."""
@@ -178,12 +188,14 @@ def select_liquid_universe(n=1000, min_price=5.0, force=False):
     # Sector: the reference endpoint doesn't carry SIC; use "-" for now
     # (dashboard tolerates it). Real sector mapping is a later enhancement.
     sectors = {t: "-" for t in symbols}
+    names = {t: (cs.get(t) or {}).get("name", "") for t in symbols}
     if not symbols:
         # never PERSIST a failed selection — the next caller must retry, not inherit zero
         print("  universe: selection came back EMPTY (throttle/outage?) — NOT caching it")
         return symbols, sectors
     os.makedirs(os.path.dirname(UNIVERSE_FILE), exist_ok=True)   # data/ is gitignored: create on first run
-    io_safe.atomic_write_text(UNIVERSE_FILE, json.dumps({"symbols": symbols, "sectors": sectors}))
+    io_safe.atomic_write_text(UNIVERSE_FILE, json.dumps({"symbols": symbols, "sectors": sectors,
+                                                         "names": names}))
     print(f"  universe: selected {len(symbols)} liquid names (>= ${min_price}, "
           f"by $-volume), saved to {UNIVERSE_FILE}")
     return symbols, sectors

@@ -199,7 +199,8 @@ def _process(scan, market, live):
                      f"{n_conf} confirmed entr{'y' if n_conf == 1 else 'ies'} today.")
 
     if lines:
-        header = "📈 <b>KWM Auto Screener</b>" + (" · live" if live else " · close") + "\n"
+        mkt = "🇮🇳 INDIA" if market == "india" else ("🇺🇸 US" if market == "us" else market.upper())
+        header = f"📈 <b>KWM Auto Screener</b> · {mkt}" + (" · live" if live else " · close") + "\n"
         sent = send(header + "\n".join(lines))
         _log(lines, live, sent)
 

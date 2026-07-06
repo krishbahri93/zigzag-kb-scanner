@@ -13,6 +13,7 @@ ROUTES
   POST /refresh          -> start a background data refresh (single-flight)
   GET  /status           -> {data_status, job} JSON for the status-strip poll
 """
+import datetime as dt
 import os
 import subprocess
 import sys
@@ -31,10 +32,26 @@ jobs = Jobs()
 MARKETS = ["us", "india"]
 
 
+_GREETINGS = [
+    "let's find you some trades to fire up! 🔥",
+    "the board is set — let's hunt. 🎯",
+    "fresh setups await. 📈",
+    "let's see what fired today. ⚡",
+    "eyes on the bands. 👀",
+]
+
+
 def _ctx(request, market, page=""):
     """The context every page needs: the status strip (data freshness, keys, current job) + the
-    market list + the registered scanners + which nav tab is active."""
+    market list + the registered scanners + which nav tab is active + a personalised greeting
+    (Caddy forwards the authenticated login as X-Auth-User)."""
+    user = (request.headers.get("x-auth-user") or "").strip()
+    greet = None
+    if user:
+        pick = _GREETINGS[(dt.date.today().toordinal() + len(user)) % len(_GREETINGS)]
+        greet = f"Welcome, {user.capitalize()} — {pick}"
     return {"request": request, "markets": MARKETS, "market": market, "page": page,
+            "user": user, "greet": greet,
             "data": service.data_status(market), "job": jobs.status(),
             "scanners": registry.list_scanners()}
 

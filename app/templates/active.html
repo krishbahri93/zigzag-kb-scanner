@@ -104,8 +104,9 @@ the initial risk. Informational only — not financial advice.</p>
       const warnTag = nearSL(t)
         ? '<br><span style="font-size:10.5px;font-weight:700;color:var(--red)">🛑 approaching stop loss</span>'
         : (nearTP(t) ? '<br><span style="font-size:10.5px;font-weight:700;color:var(--accent-deep)">🎯 approaching target</span>' : "");
+      const nm = t.name ? `<br><span class="muted" style="font-size:10.5px">${t.name.slice(0, 30)}</span>` : "";
       return `<tr class="datarow ${nearSL(t) ? "warn" : ""}" data-i="${i}">
-        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${warnTag}</td>
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${nm}${warnTag}</td>
         <td style="text-align:left"><span class="tn">${t.swing}</span></td>
         <td class="muted">${t.entry_date || "—"}</td>
         <td>${t.bars_in_state ?? "—"}</td>

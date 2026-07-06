@@ -125,8 +125,9 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     // desktop table
     $("body").innerHTML = rs.map((t, i) => {
       const dp = t.day_pct;
+      const nm = t.name ? `<br><span class="muted" style="font-size:10.5px">${t.name.slice(0, 30)}</span>` : "";
       return `<tr class="datarow" data-i="${i}">
-        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a></td>
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${nm}</td>
         <td style="text-align:left">${badge(t)}</td>
         <td style="width:18px;text-align:center">${t.fresh ? '<span class="freshdot" title="Fresh — new this scan"></span>' : ""}</td>
         <td>${K.nf(t.ltp)}</td>
