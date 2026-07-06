@@ -111,10 +111,14 @@ def _universe_cache(market):
     return syms, cache
 
 
-def _enrich_row(r, df, sector):
+def _enrich_row(r, df, sector, vol_frac=1.0):
     """Add the display fields the dashboard shows (sector, day %, volume multiple, R:R,
     distance-to-entry). Pure derivation from data already in hand; never raises — a missing
-    field renders as '—', it must not sink the scan."""
+    field renders as '—', it must not sink the scan.
+
+    vol_frac: fraction of the trading session elapsed (live ticks only). Today's partial
+    volume is compared against a session-proportional slice of the 20-day average, so at
+    10:00 a normal stock reads ~1x instead of ~0.1x and spikes are visible all day."""
     r["sector"] = sector or ""
     try:
         c = df["Close"]
@@ -122,7 +126,7 @@ def _enrich_row(r, df, sector):
     except Exception:
         r["day_pct"] = None
     try:
-        avg = float(df["Volume"].tail(20).mean())
+        avg = float(df["Volume"].tail(20).mean()) * vol_frac
         r["vol_x"] = round(float(df["Volume"].iloc[-1]) / avg, 2) if avg > 0 else None
     except Exception:
         r["vol_x"] = None
@@ -199,6 +203,13 @@ def scan_market(market, scanner="nsv2", live=False):
         except Exception:
             sectors = {}
 
+    # during a live tick, judge today's PARTIAL volume against the session fraction elapsed
+    # (NSE cash session 09:15-15:30 = 375 min); a full-day comparison reads ~0x all morning
+    vol_frac = 1.0
+    if live and market == "india":
+        mins = (dt.datetime.now().hour * 60 + dt.datetime.now().minute) - (9 * 60 + 15)
+        vol_frac = min(1.0, max(0.08, mins / 375.0))
+
     live_partials = 0
     if live and market == "india":
         today = dt.date.today()
@@ -224,7 +235,7 @@ def scan_market(market, scanner="nsv2", live=False):
             continue
         scanned += 1
         if r is not None:
-            _enrich_row(r, df, sectors.get(s))
+            _enrich_row(r, cache[s], sectors.get(s), vol_frac)   # cache[s] includes the live bar
             rows.append(r)
             asof_dates.add(r["asof"])
     rows.sort(key=lambda r: (not r["in_band"], not r["approaching"], -(r["n_swings"])))

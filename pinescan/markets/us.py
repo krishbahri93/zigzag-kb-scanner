@@ -152,9 +152,20 @@ def select_liquid_universe(n=1000, min_price=5.0, force=False):
         print("  universe: cached selection is EMPTY (failed run) — re-selecting …")
 
     cs = load_cs_tickers()
+    # walk back past weekends AND market holidays (e.g. July 4th): a closed day returns
+    # zero grouped rows, which must mean "ask an earlier day", never "select nothing"
     day = _recent_weekday()
-    print(f"  ranking liquidity from grouped bar {day} …")
-    rows = _grouped_daily(day.isoformat())
+    rows = []
+    for _ in range(7):
+        print(f"  ranking liquidity from grouped bar {day} …")
+        rows = _grouped_daily(day.isoformat())
+        if rows:
+            break
+        print(f"    no rows for {day} (holiday?) — trying the previous weekday")
+        day -= dt.timedelta(days=1)
+        while day.weekday() >= 5:
+            day -= dt.timedelta(days=1)
+    print(f"  grouped rows={len(rows)}, common-stock tickers={len(cs)}")
     cand = []
     for r in rows:
         t = r.get("T")
