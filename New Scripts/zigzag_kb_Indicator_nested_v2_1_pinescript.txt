@@ -13,6 +13,12 @@ indicator("ZZ KB Nested Swings V2.1", "ZZ KB NSV2.1", overlay=true, max_lines_co
 //      kept the focus forever while the real live trade (e.g. T2) drew faint.
 //   B. Completed-trade labels (backported from Short V1): optional toggle to
 //      leave a dim "✓ Tn" (target hit) or "✖ Tn" (missed) label for backtesting.
+//   C. SEED-PIVOT FIX (the ITC HOTELS fix): the ZigZag library's very FIRST
+//      pivot on a chart is degenerate (start == end), which made this script
+//      classify it as a LOW even when it is the chart's first HIGH. On young
+//      listings whose all-time high IS that first pivot (ITCHOTELS), the whole
+//      setup was invisible. The seed pivot's direction is now inferred from
+//      the segment that LEAVES it (falls away -> it was a high).
 // ============================================================================
 //
 // WHAT'S NEW vs V1
@@ -158,14 +164,27 @@ if hasB and zzP.pivots.size() >= 1
     for i = 0 to zzP.pivots.size() - 1
         p = zzP.pivots.get(i)
         bool down = p.end.price < p.start.price
-        if array.indexof(ptT, p.start.time) == -1
-            array.push(ptT, p.start.time)
-            array.push(ptP, p.start.price)
-            array.push(ptH, down)        // down-swing start = HIGH
-        if array.indexof(ptT, p.end.time) == -1
-            array.push(ptT, p.end.time)
-            array.push(ptP, p.end.price)
-            array.push(ptH, not down)    // down-swing end = LOW
+        if p.start.time == p.end.time
+            // V2.1: the library's SEED pivot (start==end) carries no direction —
+            // infer it from the segment that leaves this point: if the next
+            // segment falls away, the seed was a HIGH (ITC Hotels fix)
+            bool seedHigh = false
+            if i + 1 < zzP.pivots.size()
+                pn = zzP.pivots.get(i + 1)
+                seedHigh := pn.end.price < pn.start.price
+            if array.indexof(ptT, p.end.time) == -1
+                array.push(ptT, p.end.time)
+                array.push(ptP, p.end.price)
+                array.push(ptH, seedHigh)
+        else
+            if array.indexof(ptT, p.start.time) == -1
+                array.push(ptT, p.start.time)
+                array.push(ptP, p.start.price)
+                array.push(ptH, down)        // down-swing start = HIGH
+            if array.indexof(ptT, p.end.time) == -1
+                array.push(ptT, p.end.time)
+                array.push(ptP, p.end.price)
+                array.push(ptH, not down)    // down-swing end = LOW
 
     float k0 = na
     float k1 = na
