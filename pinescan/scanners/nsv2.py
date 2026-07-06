@@ -12,7 +12,7 @@ from .. import nsv2_engine, nsv2_scanner
 
 register(Scanner(
     name="nsv2",
-    display="ZZ KB Nested Swings V2",
+    display="Nested Daily Long (V2)",   # -> "V2.1" when the retire-missed + seed-pivot rules land via parity
     description="Nested ZigZag swings with fib entry/target/stop bands (faithful Pine port).",
     timeframe="1D",
     default_params=nsv2_engine.DEFAULTS,

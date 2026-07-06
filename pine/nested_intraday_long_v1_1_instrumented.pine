@@ -1,5 +1,5 @@
 //@version=6
-indicator("ZZ KB Nested Swings INTRADAY V1.1", "ZZ KB INTRA1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("Nested Intraday Long V1.1", "NIL V1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 // WHAT'S NEW vs INTRADAY V1 (mirrors Nested Swings V2.1, 2026-07-06):
 //   A. RETIRE MISSED TRADES — a WAITING trade whose whole target zone price closed
 //      above is marked 4 "✖ missed" (permanent); the spotlight moves on.
@@ -483,7 +483,7 @@ f_pick(int idx, float v0, float v1, float v2, float v3) =>
 
 if barstate.islast and showInfoTable
     table.clear(info, 0, 0, 4, 15)
-    table.cell(info, 0, 0, "ZZ KB INTRA1.1", text_color=color.orange, text_size=size.small)
+    table.cell(info, 0, 0, "NIL V1.1", text_color=color.orange, text_size=size.small)
     table.cell(info, 1, 0, "T1", text_color=color.white, text_size=size.small)
     table.cell(info, 2, 0, "T2", text_color=color.white, text_size=size.small)
     table.cell(info, 3, 0, "T3", text_color=color.white, text_size=size.small)
@@ -542,3 +542,25 @@ alertcondition(e0, "T1 Entry", "INTRA T1 ENTRY on {{ticker}}")
 alertcondition(e1, "T2 Entry", "INTRA T2 ENTRY on {{ticker}}")
 alertcondition(e2, "T3 Entry", "INTRA T3 ENTRY on {{ticker}}")
 alertcondition(e3, "T4 Entry", "INTRA T4 ENTRY on {{ticker}}")
+
+// ============================================================================
+// PARITY INSTRUMENTATION  (added for the Python port's golden-master test)
+// ============================================================================
+// TradingView's "Export chart data" emits ONLY plotted series; the internals the
+// port must reproduce are plotted here purely for the export (data_window keeps
+// them off the chart). Same column names across all instrumented scripts.
+// DELETE this block once parity is confirmed.
+plot(B_price,  "B",  display = display.data_window)
+plot(A0_price, "A0", display = display.data_window)
+plot(A1_price, "A1", display = display.data_window)
+plot(A2_price, "A2", display = display.data_window)
+plot(A3_price, "A3", display = display.data_window)
+plot(st0, "ST0", display = display.data_window)
+plot(st1, "ST1", display = display.data_window)
+plot(st2, "ST2", display = display.data_window)
+plot(st3, "ST3", display = display.data_window)
+plot((e0 or e1 or e2 or e3) ? 1 : na, "ENTRY", display = display.data_window)
+plot((p0 or p1 or p2 or p3) ? 1 : na, "TP",    display = display.data_window)
+plot((x0 or x1 or x2 or x3) ? 1 : na, "SL",    display = display.data_window)
+plot(volume,   "Volume", display = display.data_window)
+plot(volAvg,   "VolAvg", display = display.data_window)

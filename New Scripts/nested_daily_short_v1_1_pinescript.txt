@@ -1,30 +1,31 @@
 //@version=6
-indicator("ZZ KB Nested Swings INTRADAY SHORT V1.1", "ZZ KB INTRA-S1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
-// WHAT'S NEW vs INTRADAY SHORT V1 (mirrors Nested Swings V2.1, 2026-07-06):
-//   A. RETIRE MISSED TRADES — a WAITING short whose whole target zone price closed
-//      BELOW is marked 4 "✖ missed" (permanent); the spotlight moves on.
-//   B. Completed labels distinguish "✓ Tn" (target hit) from "✖ Tn" (missed).
-//   C. SEED-PIVOT FIX — the ZigZag library's degenerate first pivot no longer hides
-//      setups whose extreme IS the chart's first pivot (matters MORE intraday:
-//      limited 5m/15m history makes the first pivot recent).
+indicator("Nested Daily Short V1.1", "NDS V1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ============================================================================
-// ZZ KB Nested Swings INTRADAY SHORT V1
+// ZZ KB Nested Swings SHORT V1.1
 // ============================================================================
 //
-// The INTRADAY version of "ZZ KB Nested Swings SHORT V1" (the daily short
-// mirror). Rules are IDENTICAL to the daily short - only the yardstick shrinks
-// for 5m / 15m index charts, exactly as was done for the intraday long:
-//   trade gain per swing ~ 0.236 x rally size, so
-//   required rally ~ desired gain / 0.236.
+// WHAT'S NEW vs SHORT V1 (mirrors Nested Swings V2.1, 2026-07-06)
+//   A. RETIRE MISSED TRADES: a trade still WAITING whose entire target zone
+//      price has closed BELOW can never legitimately enter any more — marked
+//      state 4 "✖ missed" (permanent); the spotlight moves to the next trade.
+//   B. Completed labels now distinguish "✓ Tn" (target hit) from "✖ Tn" (missed).
+//   C. SEED-PIVOT FIX: the ZigZag library's first pivot on a chart is
+//      degenerate (start == end) and carried a meaningless direction flag,
+//      hiding setups on young listings whose all-time extreme IS that first
+//      pivot. Direction is now inferred from the segment that leaves it.
+// ============================================================================
 //
-// THE SHORT RULES (unchanged from the daily short)
-//   - Setup: a sharp RALLY that starts rolling over.
+// THE SHORT-ONLY MIRROR of "ZZ KB Nested Swings V2" (long). Everything is
+// reversed, exactly per the confirmed mapping:
+//   - Setup: a sharp RALLY that starts rolling over (instead of a sharp
+//     decline that starts recovering).
 //   - B = the HIGHEST HIGH (wick) of the most recent confirmed rally of at
-//     least "Min Rally %".
+//     least "Min Rally %" (mirror of the lowest low of the decline).
 //   - Nested TROUGHS T1..T4 = the higher-lows of the rally BELOW B, found
 //     nearest-first walking backward in time from B. T1 = trough NEAREST B.
-//   - Fib ladder measured DOWN from B:  level = B − fib × (B − A)
+//   - Fib ladder measured DOWN from B toward each trough:
+//       level = B − fib × (B − A)
 //       0.236 -> stop-loss line (ABOVE the entry zone)
 //       0.32–0.382 -> entry zone (entry = confirmed close BELOW 0.382)
 //       0.618–0.68 -> golden take-profit zone (first touch of 0.618 going down)
@@ -33,26 +34,10 @@ indicator("ZZ KB Nested Swings INTRADAY SHORT V1.1", "ZZ KB INTRA-S1.1", overlay
 //   - Expiry: close BELOW the lowest trough = setup fully played -> hidden.
 //   - Active trade = nearest (highest) trough not yet TP'd.
 //
-// TRADE MATH (mirrored, unchanged)
-//   Entry : confirmed close < 0.382  +  close < EMA9 & EMA21  +  volume filter
+// TRADE MATH (mirrored)
+//   Entry : confirmed close < 0.382  +  close < EMA9 & EMA21  +  vol > 1.2x avg
 //   TP    : low reaches the golden zone 0.618-0.68 (first touch of 0.618)
 //   SL    : confirmed close > 0.236   (all measured DOWN from B to each trough A)
-//
-// WHAT'S DIFFERENT vs THE DAILY SHORT (intraday deltas only)
-//   1. Deviation inputs allow sub-1% values (floors lowered to 0.1%).
-//   2. Intraday defaults: Min Rally 1.5%, Trough Sensitivity 1.0%,
-//      Min Gap 0.35% (= Nifty/Sensex 15-minute starting point).
-//   3. VOLUME AUTO-BYPASS: index symbols (NIFTY / BANKNIFTY / SENSEX) have no
-//      volume data, which would silently block every entry. The filter detects
-//      this and bypasses itself; the info table shows "n/a (index)". On
-//      futures/stocks (real volume) the filter works exactly as on daily.
-//
-// SUGGESTED STARTING VALUES (tune from forward testing)
-//   Nifty / Sensex 15m : Rally 1.5   Trough 1.0   Gap 0.35
-//   Nifty / Sensex  5m : Rally 1.0   Trough 0.7   Gap 0.25
-//   Bank Nifty     15m : Rally 2.25  Trough 1.6   Gap 0.5
-//   Bank Nifty      5m : Rally 1.5   Trough 1.0   Gap 0.35
-//   (ratios preserved: Trough = 0.71 x Rally, Gap = 0.23 x Rally)
 //
 // NOTE: this indicator marks SHORT SETUPS. On NSE cash market, short selling
 // is intraday-only; sustained shorts are via F&O. Instrument choice is yours.
@@ -63,15 +48,14 @@ import TradingView/ZigZag/7 as zigzag
 // =============== INPUTS ===============
 
 grpDetection = "Detection"
-minRallyPct = input.float(1.5, "Min Rally % (sets B / setup)", minval=0.1, maxval=200.0, step=0.1, group=grpDetection,
-     tooltip="How big a rally must be to count as a tradeable short setup. Starting points - Nifty/Sensex: 1.5 (15m) / 1.0 (5m). Bank Nifty: 2.25 (15m) / 1.5 (5m). Rule of thumb: required rally = desired trade gain / 0.236.")
-pivotSensPct = input.float(1.0, "Trough Sensitivity % (finds nested troughs)", minval=0.1, maxval=50.0, step=0.1, group=grpDetection,
-     tooltip="Finer setting used ONLY to find the nested troughs. Keep at roughly 0.7x of Min Rally %. Nifty/Sensex: 1.0 (15m) / 0.7 (5m). Bank Nifty: 1.6 (15m) / 1.0 (5m).")
-zigDepth = input.int(10, "Min Bars Between Pivots", minval=2, maxval=50, group=grpDetection,
-     tooltip="On 15m, 10 bars = 2.5 hours. On 5m consider 12-15 to skip opening-burst noise.")
+minRallyPct = input.float(35.0, "Min Rally % (sets B / setup)", minval=1.0, maxval=200.0, step=0.5, group=grpDetection,
+     tooltip="How big a rally must be to count as a tradeable short setup. The most recent confirmed rally of at least this % sets the common high B. 35% mirrors your proven long-side selectivity.")
+pivotSensPct = input.float(25.0, "Trough Sensitivity % (finds nested troughs)", minval=1.0, maxval=50.0, step=0.5, group=grpDetection,
+     tooltip="Finer setting used ONLY to find the nested troughs (T1 nearest .. down to the bottom). Lower = more/closer troughs; raise it to simplify.")
+zigDepth = input.int(10, "Min Bars Between Pivots", minval=2, maxval=50, group=grpDetection)
 maxSwings = input.int(4, "Max Nested Swings", minval=1, maxval=4, group=grpDetection)
-minGapPct = input.float(0.35, "Min Gap Between Troughs %", minval=0.0, maxval=50.0, step=0.05, group=grpDetection,
-     tooltip="Each lower trough must be at least this % below the previous one; if two are closer, the LOWER is kept. Keep at roughly 0.23x of Min Rally %.")
+minGapPct = input.float(8.0, "Min Gap Between Troughs %", minval=0.0, maxval=50.0, step=0.5, group=grpDetection,
+     tooltip="Each lower trough must be at least this % below the previous one. If two troughs are closer than this, the LOWER one is kept.")
 
 grpFib = "Fibonacci Levels (measured DOWN from B)"
 fib_sl1     = input.float(0.236, "SL line",           minval=0.05, maxval=0.4,  step=0.001, group=grpFib)
@@ -89,8 +73,7 @@ ema21Width  = input.int(2,            "Width",                 minval=1, maxval=
 
 grpFilter = "Entry Filters"
 useEmaFilter = input.bool(true, "Require Close < EMA 9 AND EMA 21", group=grpFilter)
-useVolFilter = input.bool(true, "Require Volume > 1.2x 20-bar Avg", group=grpFilter,
-     tooltip="Auto-bypassed on symbols with no volume data (e.g. NIFTY / BANKNIFTY / SENSEX index charts). Chart the futures instead if you want the volume check active.")
+useVolFilter = input.bool(true, "Require Volume > 1.2x 20-bar Avg", group=grpFilter)
 
 grpStyle = "Display"
 extendBars    = input.int(30, "Extend Zones Right (bars)", minval=5, maxval=200, group=grpStyle)
@@ -135,13 +118,6 @@ ema9  = ta.ema(close, 9)
 ema21 = ta.ema(close, 21)
 plot(ema9,  "EMA 9",  color = showEMAs ? ema9Color  : color.new(ema9Color,  100), linewidth=ema9Width)
 plot(ema21, "EMA 21", color = showEMAs ? ema21Color : color.new(ema21Color, 100), linewidth=ema21Width)
-
-// =============== VOLUME AVAILABILITY (index auto-bypass) ===============
-// Index symbols (NIFTY / BANKNIFTY / SENSEX) carry no volume. Without this
-// bypass the volume filter could never pass and no entry would ever fire.
-var bool symHasVol = false
-if not na(volume) and volume > 0
-    symHasVol := true
 
 // =============== PERSISTENT STATE ===============
 var float B_price = na
@@ -316,8 +292,7 @@ swingLevels(float Ap, float Bp) =>
 
 // =============== FILTERS ===============
 volAvg = ta.sma(volume, 20)
-// volume filter auto-bypasses on symbols without volume data (indices)
-volOK  = not useVolFilter or not symHasVol or volume > volAvg * 1.2
+volOK  = not useVolFilter or volume > volAvg * 1.2
 emaOK  = not useEmaFilter or (close < ema9 and close < ema21)
 
 // =============== TRADE STATE MACHINE (single trade per swing) ===============
@@ -496,7 +471,7 @@ fillCol(int col, bool has, float Ap, float eL, float eH, float tL, float tH, flo
     table.cell(info, col, 2, has ? str.tostring(eL, format.mintick) + "–" + str.tostring(eH, format.mintick) : "—", text_color=colEntry, text_size=size.small)
     table.cell(info, col, 3, has ? str.tostring(tL, format.mintick) + "–" + str.tostring(tH, format.mintick) : "—", text_color=colTarget, text_size=size.small)
     table.cell(info, col, 4, has ? str.tostring(slv, format.mintick) : "—", text_color=colSL, text_size=size.small)
-    table.cell(info, col, 5, has ? str.tostring(ral, "#.##") + "%" : "—", text_color=color.gray, text_size=size.small)
+    table.cell(info, col, 5, has ? str.tostring(ral, "#.#") + "%" : "—", text_color=color.gray, text_size=size.small)
     table.cell(info, col, 6, has ? stateLabel(st) : "—", text_color=stateColor(st), text_size=size.small)
 
 // active trade levels for Risk:Reward
@@ -505,7 +480,7 @@ f_pick(int idx, float v0, float v1, float v2, float v3) =>
 
 if barstate.islast and showInfoTable
     table.clear(info, 0, 0, 4, 15)
-    table.cell(info, 0, 0, "ZZ KB INTRA-S1.1", text_color=color.orange, text_size=size.small)
+    table.cell(info, 0, 0, "NDS V1.1", text_color=color.orange, text_size=size.small)
     table.cell(info, 1, 0, "T1", text_color=color.white, text_size=size.small)
     table.cell(info, 2, 0, "T2", text_color=color.white, text_size=size.small)
     table.cell(info, 3, 0, "T3", text_color=color.white, text_size=size.small)
@@ -548,41 +523,19 @@ if barstate.islast and showInfoTable
         table.cell(info, 0, 10, "Price", text_color=color.white, text_size=size.small)
         table.cell(info, 1, 10, str.tostring(close, format.mintick), text_color=color.white, text_size=size.small)
         emaCheck = close < ema9 and close < ema21
-        volCheck = symHasVol and volume > volAvg * 1.2
+        volCheck = volume > volAvg * 1.2
         table.cell(info, 0, 11, "EMA filter", text_color=color.white, text_size=size.small)
         table.cell(info, 1, 11, emaCheck ? "✓ below" : "✗ above", text_color=emaCheck ? color.lime : color.gray, text_size=size.small)
         table.cell(info, 0, 12, "Volume filter", text_color=color.white, text_size=size.small)
-        table.cell(info, 1, 12, not symHasVol ? "n/a (index — bypassed)" : volCheck ? "✓ heavy" : "✗ normal", text_color=not symHasVol ? color.gray : volCheck ? color.lime : color.gray, text_size=size.small)
+        table.cell(info, 1, 12, volCheck ? "✓ heavy" : "✗ normal", text_color=volCheck ? color.lime : color.gray, text_size=size.small)
         table.cell(info, 0, 13, "Rally / Trough %", text_color=color.gray, text_size=size.small)
-        table.cell(info, 1, 13, str.tostring(minRallyPct, "#.##") + "% / " + str.tostring(pivotSensPct, "#.##") + "%", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 13, str.tostring(minRallyPct, "#.#") + "% / " + str.tostring(pivotSensPct, "#.#") + "%", text_color=color.gray, text_size=size.small)
 
 // =============== ALERTS ===============
-alertcondition(e0 or e1 or e2 or e3, "Any Short Entry", "INTRA SHORT ENTRY on {{ticker}}")
-alertcondition(p0 or p1 or p2 or p3, "Any TP",          "INTRA SHORT TP HIT on {{ticker}}")
-alertcondition(x0 or x1 or x2 or x3, "Any SL",          "INTRA SHORT SL HIT on {{ticker}}")
-alertcondition(e0, "T1 Short Entry", "INTRA T1 SHORT ENTRY on {{ticker}}")
-alertcondition(e1, "T2 Short Entry", "INTRA T2 SHORT ENTRY on {{ticker}}")
-alertcondition(e2, "T3 Short Entry", "INTRA T3 SHORT ENTRY on {{ticker}}")
-alertcondition(e3, "T4 Short Entry", "INTRA T4 SHORT ENTRY on {{ticker}}")
-
-// ============================================================================
-// PARITY INSTRUMENTATION  (added for the Python port's golden-master test)
-// ============================================================================
-// TradingView's "Export chart data" emits ONLY plotted series; the internals the
-// port must reproduce are plotted here purely for the export (data_window keeps
-// them off the chart). Same column names across all instrumented scripts.
-// DELETE this block once parity is confirmed.
-plot(B_price,  "B",  display = display.data_window)
-plot(A0_price, "A0", display = display.data_window)
-plot(A1_price, "A1", display = display.data_window)
-plot(A2_price, "A2", display = display.data_window)
-plot(A3_price, "A3", display = display.data_window)
-plot(st0, "ST0", display = display.data_window)
-plot(st1, "ST1", display = display.data_window)
-plot(st2, "ST2", display = display.data_window)
-plot(st3, "ST3", display = display.data_window)
-plot((e0 or e1 or e2 or e3) ? 1 : na, "ENTRY", display = display.data_window)
-plot((p0 or p1 or p2 or p3) ? 1 : na, "TP",    display = display.data_window)
-plot((x0 or x1 or x2 or x3) ? 1 : na, "SL",    display = display.data_window)
-plot(volume,   "Volume", display = display.data_window)
-plot(volAvg,   "VolAvg", display = display.data_window)
+alertcondition(e0 or e1 or e2 or e3, "Any Short Entry", "Nested SHORT ENTRY on {{ticker}}")
+alertcondition(p0 or p1 or p2 or p3, "Any TP",          "Nested SHORT TP HIT on {{ticker}}")
+alertcondition(x0 or x1 or x2 or x3, "Any SL",          "Nested SHORT SL HIT on {{ticker}}")
+alertcondition(e0, "T1 Short Entry", "T1 SHORT ENTRY on {{ticker}}")
+alertcondition(e1, "T2 Short Entry", "T2 SHORT ENTRY on {{ticker}}")
+alertcondition(e2, "T3 Short Entry", "T3 SHORT ENTRY on {{ticker}}")
+alertcondition(e3, "T4 Short Entry", "T4 SHORT ENTRY on {{ticker}}")

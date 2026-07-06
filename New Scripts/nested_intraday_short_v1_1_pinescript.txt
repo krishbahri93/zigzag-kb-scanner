@@ -1,5 +1,5 @@
 //@version=6
-indicator("ZZ KB Nested Swings INTRADAY SHORT V1.1", "ZZ KB INTRA-S1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("Nested Intraday Short V1.1", "NIS V1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 // WHAT'S NEW vs INTRADAY SHORT V1 (mirrors Nested Swings V2.1, 2026-07-06):
 //   A. RETIRE MISSED TRADES — a WAITING short whose whole target zone price closed
 //      BELOW is marked 4 "✖ missed" (permanent); the spotlight moves on.
@@ -505,7 +505,7 @@ f_pick(int idx, float v0, float v1, float v2, float v3) =>
 
 if barstate.islast and showInfoTable
     table.clear(info, 0, 0, 4, 15)
-    table.cell(info, 0, 0, "ZZ KB INTRA-S1.1", text_color=color.orange, text_size=size.small)
+    table.cell(info, 0, 0, "NIS V1.1", text_color=color.orange, text_size=size.small)
     table.cell(info, 1, 0, "T1", text_color=color.white, text_size=size.small)
     table.cell(info, 2, 0, "T2", text_color=color.white, text_size=size.small)
     table.cell(info, 3, 0, "T3", text_color=color.white, text_size=size.small)

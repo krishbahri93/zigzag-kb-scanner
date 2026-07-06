@@ -1,5 +1,5 @@
 //@version=6
-indicator("ZZ KB Nested Swings V2.1", "ZZ KB NSV2.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("Nested Daily Long V2.1", "NDL V2.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ============================================================================
 // ZZ KB Nested Swings V2.1
@@ -474,7 +474,7 @@ f_pick(int idx, float v0, float v1, float v2, float v3) =>
 
 if barstate.islast and showInfoTable
     table.clear(info, 0, 0, 4, 15)
-    table.cell(info, 0, 0, "ZZ KB NSV2.1", text_color=color.orange, text_size=size.small)
+    table.cell(info, 0, 0, "NDL V2.1", text_color=color.orange, text_size=size.small)
     table.cell(info, 1, 0, "T1", text_color=color.white, text_size=size.small)
     table.cell(info, 2, 0, "T2", text_color=color.white, text_size=size.small)
     table.cell(info, 3, 0, "T3", text_color=color.white, text_size=size.small)
