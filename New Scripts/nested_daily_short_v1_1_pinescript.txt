@@ -1,0 +1,541 @@
+//@version=6
+indicator("Nested Daily Short V1.1", "NDS V1.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ============================================================================
+// ZZ KB Nested Swings SHORT V1.1
+// ============================================================================
+//
+// WHAT'S NEW vs SHORT V1 (mirrors Nested Swings V2.1, 2026-07-06)
+//   A. RETIRE MISSED TRADES: a trade still WAITING whose entire target zone
+//      price has closed BELOW can never legitimately enter any more — marked
+//      state 4 "✖ missed" (permanent); the spotlight moves to the next trade.
+//   B. Completed labels now distinguish "✓ Tn" (target hit) from "✖ Tn" (missed).
+//   C. SEED-PIVOT FIX: the ZigZag library's first pivot on a chart is
+//      degenerate (start == end) and carried a meaningless direction flag,
+//      hiding setups on young listings whose all-time extreme IS that first
+//      pivot. Direction is now inferred from the segment that leaves it.
+// ============================================================================
+//
+// THE SHORT-ONLY MIRROR of "ZZ KB Nested Swings V2" (long). Everything is
+// reversed, exactly per the confirmed mapping:
+//   - Setup: a sharp RALLY that starts rolling over (instead of a sharp
+//     decline that starts recovering).
+//   - B = the HIGHEST HIGH (wick) of the most recent confirmed rally of at
+//     least "Min Rally %" (mirror of the lowest low of the decline).
+//   - Nested TROUGHS T1..T4 = the higher-lows of the rally BELOW B, found
+//     nearest-first walking backward in time from B. T1 = trough NEAREST B.
+//   - Fib ladder measured DOWN from B toward each trough:
+//       level = B − fib × (B − A)
+//       0.236 -> stop-loss line (ABOVE the entry zone)
+//       0.32–0.382 -> entry zone (entry = confirmed close BELOW 0.382)
+//       0.618–0.68 -> golden take-profit zone (first touch of 0.618 going down)
+//   - Min-gap keeps the LOWER of two close troughs.
+//   - Stop-at-higher-high: the backward walk halts at any high above B.
+//   - Expiry: close BELOW the lowest trough = setup fully played -> hidden.
+//   - Active trade = nearest (highest) trough not yet TP'd.
+//
+// TRADE MATH (mirrored)
+//   Entry : confirmed close < 0.382  +  close < EMA9 & EMA21  +  vol > 1.2x avg
+//   TP    : low reaches the golden zone 0.618-0.68 (first touch of 0.618)
+//   SL    : confirmed close > 0.236   (all measured DOWN from B to each trough A)
+//
+// NOTE: this indicator marks SHORT SETUPS. On NSE cash market, short selling
+// is intraday-only; sustained shorts are via F&O. Instrument choice is yours.
+// ============================================================================
+
+import TradingView/ZigZag/7 as zigzag
+
+// =============== INPUTS ===============
+
+grpDetection = "Detection"
+minRallyPct = input.float(35.0, "Min Rally % (sets B / setup)", minval=1.0, maxval=200.0, step=0.5, group=grpDetection,
+     tooltip="How big a rally must be to count as a tradeable short setup. The most recent confirmed rally of at least this % sets the common high B. 35% mirrors your proven long-side selectivity.")
+pivotSensPct = input.float(25.0, "Trough Sensitivity % (finds nested troughs)", minval=1.0, maxval=50.0, step=0.5, group=grpDetection,
+     tooltip="Finer setting used ONLY to find the nested troughs (T1 nearest .. down to the bottom). Lower = more/closer troughs; raise it to simplify.")
+zigDepth = input.int(10, "Min Bars Between Pivots", minval=2, maxval=50, group=grpDetection)
+maxSwings = input.int(4, "Max Nested Swings", minval=1, maxval=4, group=grpDetection)
+minGapPct = input.float(8.0, "Min Gap Between Troughs %", minval=0.0, maxval=50.0, step=0.5, group=grpDetection,
+     tooltip="Each lower trough must be at least this % below the previous one. If two troughs are closer than this, the LOWER one is kept.")
+
+grpFib = "Fibonacci Levels (measured DOWN from B)"
+fib_sl1     = input.float(0.236, "SL line",           minval=0.05, maxval=0.4,  step=0.001, group=grpFib)
+fib_entry1L = input.float(0.32,  "Entry Zone — Near", minval=0.1,  maxval=0.5,  step=0.001, group=grpFib)
+fib_entry1H = input.float(0.382, "Entry Zone — Far",  minval=0.1,  maxval=0.5,  step=0.001, group=grpFib)
+fib_tp1L    = input.float(0.618, "Golden TP — Near",  minval=0.5,  maxval=0.8,  step=0.001, group=grpFib)
+fib_tp1H    = input.float(0.68,  "Golden TP — Far",   minval=0.5,  maxval=0.95, step=0.001, group=grpFib)
+
+grpEMA = "Moving Averages"
+showEMAs    = input.bool(false,       "Show EMA 9 / EMA 21",   group=grpEMA)
+ema9Color   = input.color(color.blue, "EMA 9 Color",           group=grpEMA, inline="ema9")
+ema9Width   = input.int(2,            "Width",                 minval=1, maxval=5, group=grpEMA, inline="ema9")
+ema21Color  = input.color(color.red,  "EMA 21 Color",          group=grpEMA, inline="ema21")
+ema21Width  = input.int(2,            "Width",                 minval=1, maxval=5, group=grpEMA, inline="ema21")
+
+grpFilter = "Entry Filters"
+useEmaFilter = input.bool(true, "Require Close < EMA 9 AND EMA 21", group=grpFilter)
+useVolFilter = input.bool(true, "Require Volume > 1.2x 20-bar Avg", group=grpFilter)
+
+grpStyle = "Display"
+extendBars    = input.int(30, "Extend Zones Right (bars)", minval=5, maxval=200, group=grpStyle)
+showInfoTable = input.bool(false, "Show Info Table", group=grpStyle)
+showABLabels  = input.bool(true,  "Show A / B Labels", group=grpStyle)
+showExpired   = input.bool(false, "Show Expired Setups (price already past)", group=grpStyle)
+showCompletedLabels = input.bool(false, "Show Completed Trade Labels (backtest)", group=grpStyle,
+     tooltip="When ON, a trade that already reached its target leaves behind just its trough label (marked ✓) — no zones or lines. Handy for backtesting; keep OFF for a clean live chart.")
+showZigZagDbg = input.bool(false, "Show Trough ZigZag (debug)", group=grpStyle)
+showTrade2 = input.bool(true, "Show Trade 2", group=grpStyle)
+showTrade3 = input.bool(true, "Show Trade 3", group=grpStyle)
+showTrade4 = input.bool(true, "Show Trade 4", group=grpStyle)
+
+grpZones = "Zone Styling (unified for all trades)"
+colEntry  = input.color(#D4AF37, "Entry Zone Color (golden)", group=grpZones)
+colTarget = input.color(#22AB94, "Target Zone Color (green)", group=grpZones)
+colSL     = input.color(color.red, "SL Line Color (red)",     group=grpZones)
+colB      = input.color(#22AB94, "B Line Color",              group=grpZones)
+zoneBorderWidth = input.int(2, "Zone Border Width", minval=1, maxval=5, group=grpZones)
+transpActive = input.int(55, "Active Zone Transparency", minval=0,  maxval=100, group=grpZones)
+transpFaint  = input.int(88, "Faint Zone Transparency",  minval=50, maxval=100, group=grpZones)
+slWidth      = input.int(1, "SL Line Width", minval=1, maxval=5, group=grpZones)
+dimGray      = input.color(color.gray, "Faint Outline Color", group=grpZones)
+
+// =============== ZIGZAG ENGINES ===============
+// zzB  -> defines the common high B (uses Min Rally % = your selectivity)
+// zzP  -> finds the nested troughs (uses the finer Trough Sensitivity %)
+var settingsB = zigzag.Settings.new(minRallyPct, zigDepth, color(na), false, false, false, false, "Absolute", true)
+var zigzag.ZigZag zzB = zigzag.newInstance(settingsB)
+settingsB.devThreshold := minRallyPct
+settingsB.depth := zigDepth
+zzB.update()
+
+var settingsP = zigzag.Settings.new(pivotSensPct, zigDepth, color(na), false, false, false, false, "Absolute", true)
+var zigzag.ZigZag zzP = zigzag.newInstance(settingsP)
+settingsP.devThreshold := pivotSensPct
+settingsP.depth := zigDepth
+zzP.update()
+
+// =============== EMAs ===============
+ema9  = ta.ema(close, 9)
+ema21 = ta.ema(close, 21)
+plot(ema9,  "EMA 9",  color = showEMAs ? ema9Color  : color.new(ema9Color,  100), linewidth=ema9Width)
+plot(ema21, "EMA 21", color = showEMAs ? ema21Color : color.new(ema21Color, 100), linewidth=ema21Width)
+
+// =============== PERSISTENT STATE ===============
+var float B_price = na
+var int   B_time  = na
+
+var float A0_price = na
+var int   A0_time  = na
+var float A1_price = na
+var int   A1_time  = na
+var float A2_price = na
+var int   A2_time  = na
+var float A3_price = na
+var int   A3_time  = na
+var int   activeSwings = 0
+
+var int st0 = 0
+var int st1 = 0
+var int st2 = 0
+var int st3 = 0
+var int stateForB = na
+
+// =============== DETECTION: common high B (latest confirmed >=Min Rally%) ===============
+if zzB.pivots.size() >= 1
+    float fB  = na
+    int   fBt = na
+    for i = 0 to zzB.pivots.size() - 1
+        p = zzB.pivots.get(i)
+        if p.end.price > p.start.price  // up-swing -> its end is the high
+            fB  := p.end.price
+            fBt := p.end.time
+    isFirst   = not na(fBt) and na(B_time)
+    isChanged = not na(fBt) and not na(B_time) and fBt != B_time
+    if isFirst or isChanged
+        B_price := fB
+        B_time  := fBt
+
+bool hasB = not na(B_price)
+
+// =============== DETECTION: nested troughs (nearest-first, finer engine) ===============
+if hasB and zzP.pivots.size() >= 1
+    array<float> ptP = array.new<float>()
+    array<int>   ptT = array.new<int>()
+    array<bool>  ptH = array.new<bool>()
+    for i = 0 to zzP.pivots.size() - 1
+        p = zzP.pivots.get(i)
+        bool down = p.end.price < p.start.price
+        if p.start.time == p.end.time
+            // V1.1: the library's SEED pivot (start==end) carries no direction —
+            // infer it from the segment that leaves this point instead
+            bool seedHigh = false
+            if i + 1 < zzP.pivots.size()
+                pn = zzP.pivots.get(i + 1)
+                seedHigh := pn.end.price < pn.start.price
+            if array.indexof(ptT, p.end.time) == -1
+                array.push(ptT, p.end.time)
+                array.push(ptP, p.end.price)
+                array.push(ptH, seedHigh)
+        else
+            if array.indexof(ptT, p.start.time) == -1
+                array.push(ptT, p.start.time)
+                array.push(ptP, p.start.price)
+                array.push(ptH, down)        // down-swing start = HIGH
+            if array.indexof(ptT, p.end.time) == -1
+                array.push(ptT, p.end.time)
+                array.push(ptP, p.end.price)
+                array.push(ptH, not down)    // down-swing end = LOW
+
+    float k0 = na
+    float k1 = na
+    float k2 = na
+    float k3 = na
+    int   k0t = na
+    int   k1t = na
+    int   k2t = na
+    int   k3t = na
+    float lastKept = na
+    int   kept = 0
+    float gapMul = 1.0 - minGapPct / 100.0
+    int   nPts = array.size(ptT)
+    for j = 0 to nPts - 1
+        idx = nPts - 1 - j
+        int t = array.get(ptT, idx)
+        if t < B_time
+            float pr  = array.get(ptP, idx)
+            bool  isH = array.get(ptH, idx)
+            if not isH
+                if pr < B_price * gapMul
+                    if na(lastKept)
+                        // T1 = nearest trough below B
+                        k0  := pr
+                        k0t := t
+                        lastKept := pr
+                        kept := 1
+                    else if pr < lastKept * gapMul
+                        // clearly lower -> new nested trough
+                        if kept == 1
+                            k1  := pr
+                            k1t := t
+                        else if kept == 2
+                            k2  := pr
+                            k2t := t
+                        else if kept == 3
+                            k3  := pr
+                            k3t := t
+                        lastKept := pr
+                        kept += 1
+                    else if pr < lastKept
+                        // lower but within the gap -> keep the LOWER one
+                        if kept == 1
+                            k0  := pr
+                            k0t := t
+                        else if kept == 2
+                            k1  := pr
+                            k1t := t
+                        else if kept == 3
+                            k2  := pr
+                            k2t := t
+                        else if kept == 4
+                            k3  := pr
+                            k3t := t
+                        lastKept := pr
+            else
+                if pr > B_price
+                    break                // higher high -> different rally, stop
+            if kept >= maxSwings
+                break
+
+    A0_price := k0
+    A0_time  := k0t
+    A1_price := k1
+    A1_time  := k1t
+    A2_price := k2
+    A2_time  := k2t
+    A3_price := k3
+    A3_time  := k3t
+    activeSwings := kept
+
+bool has0 = hasB and not na(A0_price)
+bool has1 = hasB and not na(A1_price)
+bool has2 = hasB and not na(A2_price)
+bool has3 = hasB and not na(A3_price)
+
+// =============== STATE RESET on new B ===============
+isFirstStateInit = hasB and na(stateForB)
+isStateBChanged  = hasB and not na(stateForB) and B_time != stateForB
+if isFirstStateInit or isStateBChanged
+    stateForB := B_time
+    st0 := 1
+    st1 := 1
+    st2 := 1
+    st3 := 1
+
+// =============== PER-SWING FIB LEVELS (measured DOWN from B) ===============
+// L/H suffixes refer to PRICE (low/high). Because fibs are measured down,
+// the larger fib number gives the LOWER price:
+//   eH = 0.32 level  (entry zone top),   eL = 0.382 level (entry trigger, zone bottom)
+//   tH = 0.618 level (TP zone top, first touch), tL = 0.68 level (TP zone bottom)
+//   sl = 0.236 level (ABOVE the entry zone)
+swingLevels(float Ap, float Bp) =>
+    float r  = Bp - Ap
+    float sl = Bp - fib_sl1     * r
+    float eH = Bp - fib_entry1L * r
+    float eL = Bp - fib_entry1H * r
+    float tH = Bp - fib_tp1L    * r
+    float tL = Bp - fib_tp1H    * r
+    [sl, eL, eH, tL, tH]
+
+[sl0, e0L, e0H, t0L, t0H] = swingLevels(A0_price, B_price)
+[sl1, e1L, e1H, t1L, t1H] = swingLevels(A1_price, B_price)
+[sl2, e2L, e2H, t2L, t2H] = swingLevels(A2_price, B_price)
+[sl3, e3L, e3H, t3L, t3H] = swingLevels(A3_price, B_price)
+
+// =============== FILTERS ===============
+volAvg = ta.sma(volume, 20)
+volOK  = not useVolFilter or volume > volAvg * 1.2
+emaOK  = not useEmaFilter or (close < ema9 and close < ema21)
+
+// =============== TRADE STATE MACHINE (single trade per swing) ===============
+// eLo = 0.382 price (entry trigger), tHi = 0.618 price (TP first touch),
+// slLvl = 0.236 price (SL sits ABOVE — exit on a confirmed close above it)
+stepTrade(int s, float eLo, float tHi, float slLvl, bool eOK, bool vOK) =>
+    int  ns = s
+    bool eFire = false
+    bool tFire = false
+    bool sFire = false
+    bool crossE = not na(eLo) and close < eLo and close[1] >= eLo
+    if s == 1 and crossE and eOK and vOK
+        ns := 2
+        eFire := true
+    else if s == 2
+        if not na(tHi) and low <= tHi
+            ns := 3
+            tFire := true
+        else if not na(slLvl) and close > slLvl
+            ns := 1
+            sFire := true
+    [ns, eFire, tFire, sFire]
+
+bool e0 = false
+bool p0 = false
+bool x0 = false
+bool e1 = false
+bool p1 = false
+bool x1 = false
+bool e2 = false
+bool p2 = false
+bool x2 = false
+bool e3 = false
+bool p3 = false
+bool x3 = false
+
+if hasB and barstate.isconfirmed
+    if has0
+        [ns0, ef0, tf0, sf0] = stepTrade(st0, e0L, t0H, sl0, emaOK, volOK)
+        st0 := ns0
+        e0  := ef0
+        p0  := tf0
+        x0  := sf0
+    if has1
+        [ns1, ef1, tf1, sf1] = stepTrade(st1, e1L, t1H, sl1, emaOK, volOK)
+        st1 := ns1
+        e1  := ef1
+        p1  := tf1
+        x1  := sf1
+    if has2
+        [ns2, ef2, tf2, sf2] = stepTrade(st2, e2L, t2H, sl2, emaOK, volOK)
+        st2 := ns2
+        e2  := ef2
+        p2  := tf2
+        x2  := sf2
+    if has3
+        [ns3, ef3, tf3, sf3] = stepTrade(st3, e3L, t3H, sl3, emaOK, volOK)
+        st3 := ns3
+        e3  := ef3
+        p3  := tf3
+        x3  := sf3
+    // V1.1: RETIRE MISSED TRADES — a WAITING short whose whole target zone price has
+    // closed BELOW can never legitimately enter; mark 4 (✖ missed, permanent) so the
+    // spotlight moves to the next trade.
+    if has0 and st0 == 1 and close < t0L
+        st0 := 4
+    if has1 and st1 == 1 and close < t1L
+        st1 := 4
+    if has2 and st2 == 1 and close < t2L
+        st2 := 4
+    if has3 and st3 == 1 and close < t3L
+        st3 := 4
+
+// active trade = nearest (highest) trough still tradeable (not TP'd, not missed);
+// expiry = price below lowest trough
+int activeIdx = na
+if has0 and st0 < 3
+    activeIdx := 0
+else if has1 and st1 < 3
+    activeIdx := 1
+else if has2 and st2 < 3
+    activeIdx := 2
+else if has3 and st3 < 3
+    activeIdx := 3
+
+float bottomA = has3 ? A3_price : has2 ? A2_price : has1 ? A1_price : has0 ? A0_price : na
+bool setupExpired = hasB and not na(bottomA) and close < bottomA
+
+// =============== PLOT SHAPES ===============
+plotshape(e0 or e1 or e2 or e3, "Entry", style=shape.triangledown, location=location.abovebar, color=color.new(colEntry, 0),  size=size.small, text="▼ Short", textcolor=color.white)
+plotshape(p0 or p1 or p2 or p3, "TP",    style=shape.triangleup,   location=location.belowbar, color=color.new(colTarget, 0), size=size.small, text="TP",      textcolor=color.white)
+plotshape(x0 or x1 or x2 or x3, "SL",    style=shape.xcross,       location=location.belowbar, color=color.new(colSL, 0),     size=size.small, text="SL",      textcolor=color.white)
+
+// =============== DRAWING ===============
+var array<box>   gBoxes  = array.new<box>()
+var array<line>  gLines  = array.new<line>()
+var array<label> gLabels = array.new<label>()
+
+clearDrawings() =>
+    for b in gBoxes
+        box.delete(b)
+    for l in gLines
+        line.delete(l)
+    for lb in gLabels
+        label.delete(lb)
+    array.clear(gBoxes)
+    array.clear(gLines)
+    array.clear(gLabels)
+
+drawSwing(float Ap, int At, float eL, float eH, float tL, float tH, float slv, bool isActive, bool doShow, int rightT, string tag) =>
+    if not na(Ap) and doShow and not na(B_time)
+        int transp = isActive ? transpActive : transpFaint
+        color tBorder = isActive ? colTarget : color.new(dimGray, 75)
+        // target (green) zone for both active and faint
+        array.push(gBoxes, box.new(B_time, tH, rightT, tL, xloc=xloc.bar_time, border_color=tBorder, bgcolor=color.new(colTarget, transp), border_width=isActive ? zoneBorderWidth : 1))
+        // trough (A) line
+        array.push(gLines, line.new(At, Ap, rightT, Ap, xloc=xloc.bar_time, color=color.new(isActive ? colTarget : dimGray, isActive ? 25 : 70), style=line.style_dotted, width=1))
+        if showABLabels
+            array.push(gLabels, label.new(At, Ap, tag + "  " + str.tostring(Ap, format.mintick), xloc=xloc.bar_time, style=label.style_label_up, color=color.new(isActive ? colTarget : dimGray, 15), textcolor=color.white, size=size.small))
+        if isActive
+            array.push(gBoxes, box.new(B_time, eH, rightT, eL, xloc=xloc.bar_time, border_color=colEntry, bgcolor=color.new(colEntry, transpActive), border_width=zoneBorderWidth))
+            array.push(gLines, line.new(B_time, slv, rightT, slv, xloc=xloc.bar_time, color=color.new(colSL, 30), style=line.style_dashed, width=slWidth))
+            int midT = int(B_time + (rightT - B_time) / 2)
+            array.push(gLabels, label.new(midT, (eL + eH) / 2, tag + " Entry", xloc=xloc.bar_time, style=label.style_none, textcolor=colEntry, size=size.small))
+            array.push(gLabels, label.new(midT, (tL + tH) / 2, tag + " Target", xloc=xloc.bar_time, style=label.style_none, textcolor=colTarget, size=size.small))
+
+// finished trade -> just the trough label (no zones): "✓" target hit, "✖" missed (V1.1)
+drawDoneLabel(float Ap, int At, string tag, bool hitTP) =>
+    if not na(Ap)
+        array.push(gLabels, label.new(At, Ap, (hitTP ? "✓ " : "✖ ") + tag + "  " + str.tostring(Ap, format.mintick), xloc=xloc.bar_time, style=label.style_label_up, color=color.new(dimGray, 25), textcolor=color.white, size=size.small))
+
+if barstate.islast
+    clearDrawings()
+    if hasB and (showExpired or not setupExpired)
+        int rightTime = int(time + extendBars * (time - time[1]))
+        array.push(gLines, line.new(B_time, B_price, rightTime, B_price, xloc=xloc.bar_time, color=color.new(colB, 20), style=line.style_dotted, width=1))
+        if showABLabels
+            array.push(gLabels, label.new(B_time, B_price, "B  " + str.tostring(B_price, format.mintick), xloc=xloc.bar_time, style=label.style_label_down, color=color.new(colB, 15), textcolor=color.white, size=size.small))
+        if has0
+            if st0 < 3
+                drawSwing(A0_price, A0_time, e0L, e0H, t0L, t0H, sl0, activeIdx == 0, true,       rightTime, "T1")
+            else if showCompletedLabels
+                drawDoneLabel(A0_price, A0_time, "T1", st0 == 3)
+        if has1
+            if st1 < 3
+                drawSwing(A1_price, A1_time, e1L, e1H, t1L, t1H, sl1, activeIdx == 1, showTrade2, rightTime, "T2")
+            else if showCompletedLabels and showTrade2
+                drawDoneLabel(A1_price, A1_time, "T2", st1 == 3)
+        if has2
+            if st2 < 3
+                drawSwing(A2_price, A2_time, e2L, e2H, t2L, t2H, sl2, activeIdx == 2, showTrade3, rightTime, "T3")
+            else if showCompletedLabels and showTrade3
+                drawDoneLabel(A2_price, A2_time, "T3", st2 == 3)
+        if has3
+            if st3 < 3
+                drawSwing(A3_price, A3_time, e3L, e3H, t3L, t3H, sl3, activeIdx == 3, showTrade4, rightTime, "T4")
+            else if showCompletedLabels and showTrade4
+                drawDoneLabel(A3_price, A3_time, "T4", st3 == 3)
+    if showZigZagDbg and zzP.pivots.size() >= 1
+        for i = 0 to zzP.pivots.size() - 1
+            p = zzP.pivots.get(i)
+            array.push(gLines, line.new(p.start.time, p.start.price, p.end.time, p.end.price, xloc=xloc.bar_time, color=color.new(color.yellow, 50), width=1, style=line.style_dashed))
+
+// =============== INFO TABLE ===============
+var table info = table.new(position.top_right, 5, 16, bgcolor=color.new(color.black, 70), border_width=1)
+
+stateLabel(int s) =>
+    s == 1 ? "⏳ wait" : s == 2 ? "🟢 IN" : s == 3 ? "✓ TP" : s == 4 ? "✖ missed" : "—"
+
+stateColor(int s) =>
+    s == 2 ? color.lime : s == 1 ? color.aqua : s == 3 ? color.gray : s == 4 ? color.orange : color.white
+
+fillCol(int col, bool has, float Ap, float eL, float eH, float tL, float tH, float slv, int st) =>
+    float ral = has and Ap > 0 ? (B_price - Ap) / Ap * 100.0 : na
+    table.cell(info, col, 1, has ? str.tostring(Ap, format.mintick) : "—", text_color=color.white, text_size=size.small)
+    table.cell(info, col, 2, has ? str.tostring(eL, format.mintick) + "–" + str.tostring(eH, format.mintick) : "—", text_color=colEntry, text_size=size.small)
+    table.cell(info, col, 3, has ? str.tostring(tL, format.mintick) + "–" + str.tostring(tH, format.mintick) : "—", text_color=colTarget, text_size=size.small)
+    table.cell(info, col, 4, has ? str.tostring(slv, format.mintick) : "—", text_color=colSL, text_size=size.small)
+    table.cell(info, col, 5, has ? str.tostring(ral, "#.#") + "%" : "—", text_color=color.gray, text_size=size.small)
+    table.cell(info, col, 6, has ? stateLabel(st) : "—", text_color=stateColor(st), text_size=size.small)
+
+// active trade levels for Risk:Reward
+f_pick(int idx, float v0, float v1, float v2, float v3) =>
+    idx == 0 ? v0 : idx == 1 ? v1 : idx == 2 ? v2 : idx == 3 ? v3 : na
+
+if barstate.islast and showInfoTable
+    table.clear(info, 0, 0, 4, 15)
+    table.cell(info, 0, 0, "NDS V1.1", text_color=color.orange, text_size=size.small)
+    table.cell(info, 1, 0, "T1", text_color=color.white, text_size=size.small)
+    table.cell(info, 2, 0, "T2", text_color=color.white, text_size=size.small)
+    table.cell(info, 3, 0, "T3", text_color=color.white, text_size=size.small)
+    table.cell(info, 4, 0, "T4", text_color=color.white, text_size=size.small)
+    if not hasB
+        int upCount = 0
+        if zzB.pivots.size() >= 1
+            for di = 0 to zzB.pivots.size() - 1
+                pd = zzB.pivots.get(di)
+                if pd.end.price > pd.start.price
+                    upCount += 1
+        table.cell(info, 0, 1, "Status", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 1, "Waiting for valid swing", text_color=color.aqua, text_size=size.small)
+        table.cell(info, 0, 2, "Rally pivots", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 2, str.tostring(zzB.pivots.size()) + " (up=" + str.tostring(upCount) + ")", text_color=color.aqua, text_size=size.small)
+    else
+        table.cell(info, 0, 1, "A trough", text_color=color.white, text_size=size.small)
+        table.cell(info, 0, 2, "Entry .32–.382", text_color=colEntry, text_size=size.small)
+        table.cell(info, 0, 3, "Target .618–.68", text_color=colTarget, text_size=size.small)
+        table.cell(info, 0, 4, "SL .236", text_color=colSL, text_size=size.small)
+        table.cell(info, 0, 5, "Rally %", text_color=color.gray, text_size=size.small)
+        table.cell(info, 0, 6, "State", text_color=color.white, text_size=size.small)
+        fillCol(1, has0, A0_price, e0L, e0H, t0L, t0H, sl0, st0)
+        fillCol(2, has1, A1_price, e1L, e1H, t1L, t1H, sl1, st1)
+        fillCol(3, has2, A2_price, e2L, e2H, t2L, t2H, sl2, st2)
+        fillCol(4, has3, A3_price, e3L, e3H, t3L, t3H, sl3, st3)
+        // shared rows
+        float aEntry  = f_pick(activeIdx, e0L, e1L, e2L, e3L)
+        float aSL     = f_pick(activeIdx, sl0, sl1, sl2, sl3)
+        float aTgtLo  = f_pick(activeIdx, t0L, t1L, t2L, t3L)
+        float aTgtHi  = f_pick(activeIdx, t0H, t1H, t2H, t3H)
+        float aTgtMid = na(aTgtLo) ? na : (aTgtLo + aTgtHi) / 2.0
+        float rr = (not na(aEntry) and not na(aSL) and aSL > aEntry) ? (aEntry - aTgtMid) / (aSL - aEntry) : na
+        table.cell(info, 0, 7, "B (common high)", text_color=colB, text_size=size.small)
+        table.cell(info, 1, 7, str.tostring(B_price, format.mintick), text_color=colB, text_size=size.small)
+        table.cell(info, 0, 8, "Setup", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 8, setupExpired ? "✓ fully played" : not na(activeIdx) ? "active T" + str.tostring(activeIdx + 1) : "—", text_color=setupExpired ? color.gray : color.lime, text_size=size.small)
+        table.cell(info, 0, 9, "Active R:R", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 9, na(rr) ? "—" : str.tostring(rr, "#.##") + " : 1", text_color=rr >= 1.5 ? color.lime : color.orange, text_size=size.small)
+        table.cell(info, 0, 10, "Price", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 10, str.tostring(close, format.mintick), text_color=color.white, text_size=size.small)
+        emaCheck = close < ema9 and close < ema21
+        volCheck = volume > volAvg * 1.2
+        table.cell(info, 0, 11, "EMA filter", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 11, emaCheck ? "✓ below" : "✗ above", text_color=emaCheck ? color.lime : color.gray, text_size=size.small)
+        table.cell(info, 0, 12, "Volume filter", text_color=color.white, text_size=size.small)
+        table.cell(info, 1, 12, volCheck ? "✓ heavy" : "✗ normal", text_color=volCheck ? color.lime : color.gray, text_size=size.small)
+        table.cell(info, 0, 13, "Rally / Trough %", text_color=color.gray, text_size=size.small)
+        table.cell(info, 1, 13, str.tostring(minRallyPct, "#.#") + "% / " + str.tostring(pivotSensPct, "#.#") + "%", text_color=color.gray, text_size=size.small)
+
+// =============== ALERTS ===============
+alertcondition(e0 or e1 or e2 or e3, "Any Short Entry", "Nested SHORT ENTRY on {{ticker}}")
+alertcondition(p0 or p1 or p2 or p3, "Any TP",          "Nested SHORT TP HIT on {{ticker}}")
+alertcondition(x0 or x1 or x2 or x3, "Any SL",          "Nested SHORT SL HIT on {{ticker}}")
+alertcondition(e0, "T1 Short Entry", "T1 SHORT ENTRY on {{ticker}}")
+alertcondition(e1, "T2 Short Entry", "T2 SHORT ENTRY on {{ticker}}")
+alertcondition(e2, "T3 Short Entry", "T3 SHORT ENTRY on {{ticker}}")
+alertcondition(e3, "T4 Short Entry", "T4 SHORT ENTRY on {{ticker}}")
