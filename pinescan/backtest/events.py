@@ -114,6 +114,8 @@ def trades_for(symbol, df, scanner="nsv2", params=None):
     p = dict(sc.default_params)
     if params:
         p.update(params)
+    # Short scanners (side="short") mirror the geometry: target BELOW entry, stop ABOVE.
+    short = getattr(sc, "side", "long") == "short"
 
     out = sc.run(df, p)
 
@@ -170,8 +172,16 @@ def trades_for(symbol, df, scanner="nsv2", params=None):
             bar_o, bar_h, bar_l = _f(opens), _f(highs), _f(lows)
             rng = (bar_h - bar_l) if (bar_h is not None and bar_l is not None) else None
             candle_pos = ((bar_c - bar_l) / rng) if (rng is not None and rng > 0) else None
-            risk = bar_c - lv["sl"]
-            rr_remaining = ((lv["tL"] - bar_c) / risk) if risk > 0 else None
+            # Side-aware geometry. The level dicts keep PRICE semantics (tL = lower
+            # price), so the 0.618 first-touch target edge is tL for longs but tH for
+            # shorts. candle_pos is normalised to "close near the FAVOURABLE extreme"
+            # (the high for longs, the low for shorts) so one filter serves both sides.
+            target = lv["tH"] if short else lv["tL"]
+            if short and candle_pos is not None:
+                candle_pos = 1.0 - candle_pos
+            risk = (lv["sl"] - bar_c) if short else (bar_c - lv["sl"])
+            reward = (bar_c - target) if short else (target - bar_c)
+            rr_remaining = (reward / risk) if risk > 0 else None
             has_next = k + 1 < len(index)
 
             trades.append(Trade(
@@ -179,8 +189,9 @@ def trades_for(symbol, df, scanner="nsv2", params=None):
                 swing=f"T{i + 1}",
                 entry_date=index[k],
                 entry_price=bar_c,
-                target=lv["tL"],          # 0.618 take-profit
-                sl=lv["sl"],              # 0.236 stop
+                target=target,            # 0.618 first-touch edge (below entry for shorts)
+                sl=lv["sl"],              # 0.236 stop (above entry for shorts)
+                side="short" if short else "long",
                 natural_exit_date=exit_date,
                 natural_outcome=outcome,
                 sig_open=bar_o,

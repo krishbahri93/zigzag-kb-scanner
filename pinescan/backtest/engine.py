@@ -215,7 +215,8 @@ def run_backtest(cache, policy, window_start=None, trades=None,
 
     # Engine tallies the report surfaces: how often a signal couldn't be funded, and how
     # often rotation freed a slot. metrics.summarize() passes these straight through.
-    counters = {"signals_skipped_no_cash": 0, "rotations_triggered": 0}
+    counters = {"signals_skipped_no_cash": 0, "rotations_triggered": 0,
+                "signals_skipped_side_cap": 0}
 
     # The shared daily timeline = the union of every symbol's bar dates, sorted & unique.
     # pd.Index.union does exactly that (sorted, de-duplicated) across all frames.
@@ -267,6 +268,14 @@ def run_backtest(cache, policy, window_start=None, trades=None,
                 continue                                   # one position per symbol
             if not rules["selection"].should_take(pf, t):
                 continue                                   # policy vetoed this signal
+            # Per-side position caps — the combined-book capital splits (e.g. 6 long /
+            # 4 short). A full side is a hard skip; rotation must not raid the OTHER
+            # side's book to fund this one, so we don't fall through to it.
+            side_cap = policy.max_short if t.side == "short" else policy.max_long
+            if side_cap is not None:
+                if sum(1 for p in pf.positions.values() if p.trade.side == t.side) >= side_cap:
+                    counters["signals_skipped_side_cap"] += 1
+                    continue
             size = rules["sizing"].position_size(pf, t)
             price = _fire_price(t)                         # the trade's own recorded fill
             if price is None:

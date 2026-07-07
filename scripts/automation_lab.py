@@ -26,14 +26,24 @@ STAGED SWEEP (keeps it to ~1.1k simulations instead of a blind 10k grid)
   Every stage reuses the ONE up-front signal detection (signals don't depend on policy).
 
 USAGE (on the server, where the data cache lives)
-    venv/bin/python scripts/automation_lab.py            # full staged sweep
-    venv/bin/python scripts/automation_lab.py --quick    # coarse smoke grid (~40 sims)
+    venv/bin/python scripts/automation_lab.py                 # LONG staged sweep (NDL V2.1)
+    venv/bin/python scripts/automation_lab.py --side short    # SHORT staged sweep (NDS V1.1)
+    venv/bin/python scripts/automation_lab.py --combined      # long+short Rs 20L capital study
+    venv/bin/python scripts/automation_lab.py --quick         # coarse smoke grid (~40 sims)
 
-OUTPUT -> reports/automation_lab/
+OUTPUT -> reports/automation_lab/            (long)
+          reports/automation_lab/short/      (short sweep)
+          reports/automation_lab/combined/   (capital study)
     all_combos.csv   every simulation, one row, train_* and val_* metrics
     TOP20.md         ranked leaderboard (passers first) + baselines for scale
     ANSWERS.md       plain-English answers to each of Krish's questions, with the
                      marginal numbers that justify them
+
+SHORT-SIDE REALISM NOTE: shorts are simulated with the FULL notional locked as margin
+(no leverage credit) on the whole NSE universe. Real overnight shorting in India needs
+stock futures (F&O list only, lot sizes, ~20-25% margin) — so short results are a
+STRUCTURE test (does the mirror edge exist?), optimistic on universe, conservative on
+capital. Refine with the actual F&O list before automating shorts with money.
 """
 import os
 import sys
@@ -68,7 +78,8 @@ _KEEP = ["total_return_pct", "cagr", "max_drawdown_pct", "win_rate", "profit_fac
 # ---------------------------------------------------------------------------
 def make_policy(name, selection_params=None, exit_params=None,
                 sizing=("fixed_amount", {"amount": 200_000}),
-                rotation=("none", {}), max_concurrent=10, total=2_000_000):
+                rotation=("none", {}), max_concurrent=10, total=2_000_000,
+                max_long=None, max_short=None):
     """A Policy built in code (the sweep would otherwise need hundreds of JSONs)."""
     sel = ("entry_filters", selection_params) if selection_params else \
           ("free_capital_first", {})
@@ -78,7 +89,8 @@ def make_policy(name, selection_params=None, exit_params=None,
                   sizing=sizing[0], sizing_params=sizing[1],
                   selection=sel[0], selection_params=sel[1],
                   rotation=rotation[0], rotation_params=rotation[1],
-                  exit=exi[0], exit_params=exi[1], costs=COSTS)
+                  exit=exi[0], exit_params=exi[1], costs=COSTS,
+                  max_long=max_long, max_short=max_short)
 
 
 def evaluate(cache, trades, policy, entry_fill, train_end):
@@ -266,9 +278,10 @@ def _delta_lines(rows, by_id, col, label):
     return L
 
 
-def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quick):
-    os.makedirs(OUT_DIR, exist_ok=True)
-    pd.DataFrame(rows).to_csv(f"{OUT_DIR}/all_combos.csv", index=False)
+def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quick,
+                  out_dir=OUT_DIR, side="long"):
+    os.makedirs(out_dir, exist_ok=True)
+    pd.DataFrame(rows).to_csv(f"{out_dir}/all_combos.csv", index=False)
 
     ranked = sorted(rows, key=_score, reverse=True)
     sweep = [r for r in ranked if r["stage"] in ("A", "B", "C")]
@@ -276,7 +289,7 @@ def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quic
     by_id = {r["id"]: r for r in rows}
 
     # ------------------------------ TOP20.md ---------------------------------
-    L = ["# Automation Lab — leaderboard", "",
+    L = [f"# Automation Lab — leaderboard ({side.upper()} side)", "",
          f"_Data through {last_bar.date()} · train = history->{train_end.date()} · "
          f"validate = {(train_end + pd.Timedelta(days=1)).date()}->{last_bar.date()} · "
          f"capital Rs 20L · gate: DD <= {DD_CAP:.0f}% and profitable in BOTH windows · "
@@ -287,7 +300,7 @@ def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quic
     unc = sorted(sweep, key=lambda r: -1e18 if r["val_cagr"] is None else r["val_cagr"],
                  reverse=True)[:5]
     L += _table(unc, "Top 5 ignoring the drawdown gate (for reference only)")
-    open(f"{OUT_DIR}/TOP20.md", "w", encoding="utf-8").write("\n".join(L))
+    open(f"{out_dir}/TOP20.md", "w", encoding="utf-8").write("\n".join(L))
 
     # ------------------------------ ANSWERS.md -------------------------------
     A_rows = [r for r in rows if r["stage"] == "A"]
@@ -295,7 +308,7 @@ def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quic
     C_rows = [r for r in rows if r["stage"] == "C"]
     win = passers[0] if passers else (sweep[0] if sweep else None)
 
-    L = ["# Automation Lab — answers to Krish's questions", "",
+    L = [f"# Automation Lab — answers to Krish's questions ({side.upper()} side)", "",
          "Every number below is the average validation-window CAGR across all sweep",
          "combinations sharing that setting — i.e. 'holding everything else mixed, does",
          "turning this dial pay?'. The leaderboard (TOP20.md) has the exact winners.", ""]
@@ -328,10 +341,122 @@ def write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, quic
                  f"{_fmt(win['train_max_drawdown_pct'])}% DD")
         L.append(f"  - spec: {_combo_words(win)}")
         L.append("")
-        L.append("If the verdict holds up to scrutiny, this spec becomes the **NDL-Auto v1** policy")
-        L.append("(a committed JSON) and goes to paper-trading in the forward test before any capital.")
-    open(f"{OUT_DIR}/ANSWERS.md", "w", encoding="utf-8").write("\n".join(L))
+        L.append("If the verdict holds up to scrutiny, this spec becomes the frozen policy for this")
+        L.append("side and goes to paper-trading in the forward test before any capital.")
+    open(f"{out_dir}/ANSWERS.md", "w", encoding="utf-8").write("\n".join(L))
     return win
+
+
+# ---------------------------------------------------------------------------
+# the combined long+short Rs 20L capital study (--combined)
+# ---------------------------------------------------------------------------
+def _yearly(res):
+    """Calendar-year % returns off a Result's equity curve, as 'yyyy: +x.x%' text."""
+    s = pd.Series({pd.Timestamp(d): v for d, v in res.equity_curve}).sort_index()
+    if not len(s):
+        return "no curve"
+    prev, out = s.iloc[0], []
+    for ts, v in s.resample("YE").last().items():
+        out.append(f"{ts.year}: {(v / prev - 1) * 100:+.1f}%")
+        prev = v
+    return "  ".join(out)
+
+
+def run_combined(cache, mkt, train_end, last_bar, t0):
+    """One combined book, both signal streams, Rs 20L clubbed — sweep the capital-
+    management schemes: shared pool vs per-side splits x fixed vs compounding sizing.
+    Long/short rule spec = the long sweep's winner (B103) mirrored, so the ONLY thing
+    varying here is how the capital is managed."""
+    out_dir = f"{OUT_DIR}/combined"
+    os.makedirs(out_dir, exist_ok=True)
+    SEL = {"min_candle_pos": 0.6, "green_only": True, "min_rr": 1.0}   # B103, mirrored
+    EXI = {"early_pct": 70}
+    SIZINGS = [("fixed2L", ("fixed_amount", {"amount": 200_000})),
+               ("pctEq10", ("percent_of_equity", {"pct": 10}))]
+    CAPS = [(None, None), (8, 2), (7, 3), (6, 4), (5, 5)]              # long/short slots
+
+    print("Detecting BOTH signal streams once ...")
+    t_long, t_short = [], []
+    for sym, df in cache.items():
+        t_long += events.trades_for(sym, df, scanner="nsv2")
+        t_short += events.trades_for(sym, df, scanner="nds")
+    merged = t_long + t_short
+    print(f"  {len(t_long)} long + {len(t_short)} short signals")
+
+    def sided_pnl(res, side):
+        return sum(ct.pnl for ct in res.closed if ct.side == side)
+
+    rows = []
+
+    def run_one(rid, trades, ml, ms, sz_lbl, sz):
+        pol = make_policy(rid, selection_params=SEL, exit_params=EXI, sizing=sz,
+                          max_long=ml, max_short=ms)
+        tr = engine.run_backtest(cache, pol, trades=trades, window_end=train_end)
+        vr = engine.run_backtest(cache, pol, trades=trades,
+                                 window_start=train_end + pd.Timedelta(days=1))
+        tm, vm_ = tr.metrics, vr.metrics
+        row = {"id": rid,
+               "scheme": "shared pool" if ml is None else f"{ml} long / {ms} short",
+               "sizing": sz_lbl, "passes": passes(tm, vm_),
+               "val_long_pnl": sided_pnl(vr, "long"), "val_short_pnl": sided_pnl(vr, "short"),
+               "val_skipped_side_cap": vm_.get("signals_skipped_side_cap", 0),
+               "yearly": _yearly(vr)}
+        for k in _KEEP:
+            row[f"train_{k}"] = tm.get(k)
+            row[f"val_{k}"] = vm_.get(k)
+        rows.append(row)
+        print(f"  {rid:22s} val CAGR {_fmt(row['val_cagr']):>6s}%  DD "
+              f"{_fmt(row['val_max_drawdown_pct'])}%  L pnl {row['val_long_pnl'] / 1e5:+.1f}L  "
+              f"S pnl {row['val_short_pnl'] / 1e5:+.1f}L  {'PASS' if row['passes'] else 'fail'}")
+        return row
+
+    # Reference books first: each side ALONE with the whole Rs 20L.
+    print("Reference books (each side alone, full capital) ...")
+    run_one("REF_long_only", t_long, None, None, "fixed2L", SIZINGS[0][1])
+    run_one("REF_short_only", t_short, None, None, "fixed2L", SIZINGS[0][1])
+
+    print(f"Capital schemes — {len(CAPS)} splits x {len(SIZINGS)} sizings on the combined book ...")
+    n = 0
+    for ml, ms in CAPS:
+        for sz_lbl, sz in SIZINGS:
+            run_one(f"COMB{n:02d}", merged, ml, ms, sz_lbl, sz)
+            n += 1
+
+    pd.DataFrame(rows).to_csv(f"{out_dir}/combined_all.csv", index=False)
+
+    combs = [r for r in rows if r["id"].startswith("COMB")]
+    ranked = sorted(combs, key=_score, reverse=True)
+    refs = [r for r in rows if r["id"].startswith("REF")]
+    L = ["# Automation Lab — combined long+short book (Rs 20L clubbed)", "",
+         f"_Data through {last_bar.date()} · rule spec both sides = the long winner "
+         f"(candle top-40%, confirming candle, R:R >= 1, early target 70%) · only the "
+         f"CAPITAL MANAGEMENT varies · gate: DD <= {DD_CAP:.0f}% + profitable in both windows._",
+         "",
+         "SHORT REALISM: shorts modelled at full-notional margin on the whole NSE universe;",
+         "real overnight shorts need stock futures (F&O names, lots, ~20-25% margin). Treat",
+         "short P&L as a structure signal, not a bankable number, until the F&O pass.", "",
+         "| # | scheme | sizing | val CAGR% | val DD% | val PF | val trades | L pnl (val) | S pnl (val) | train CAGR% | train DD% | pass |",
+         "|---|--------|--------|-----------|---------|--------|------------|-------------|-------------|-------------|-----------|------|"]
+    for i, r in enumerate(refs + ranked, 1):
+        L.append("| " + " | ".join([
+            str(i), r["scheme"] if r["id"].startswith("COMB") else r["id"],
+            r["sizing"], _fmt(r["val_cagr"]), _fmt(r["val_max_drawdown_pct"]),
+            _fmt(r["val_profit_factor"], 2), str(r["val_num_trades"]),
+            f"{r['val_long_pnl'] / 1e5:+.1f}L", f"{r['val_short_pnl'] / 1e5:+.1f}L",
+            _fmt(r["train_cagr"]), _fmt(r["train_max_drawdown_pct"]),
+            "YES" if r["passes"] else "no"]) + " |")
+    L.append("")
+    best = next((r for r in ranked if r["passes"]), ranked[0] if ranked else None)
+    if best:
+        L += [f"**Best gated scheme: {best['scheme']} · {best['sizing']}** — validate "
+              f"CAGR {_fmt(best['val_cagr'])}% at {_fmt(best['val_max_drawdown_pct'])}% DD "
+              f"(train {_fmt(best['train_cagr'])}% at {_fmt(best['train_max_drawdown_pct'])}%).",
+              "", f"Winner's calendar years (validate window): {best['yearly']}", ""]
+    open(f"{out_dir}/COMBINED.md", "w", encoding="utf-8").write("\n".join(L))
+    print(f"\n{len(rows)} simulations in {(time.time() - t0) / 60:.1f} min -> {out_dir}/")
+    if best:
+        print(f"  best gated: {best['scheme']} · {best['sizing']} — val CAGR "
+              f"{_fmt(best['val_cagr'])}% at DD {_fmt(best['val_max_drawdown_pct'])}%")
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +468,10 @@ def main():
     ap.add_argument("--quick", action="store_true", help="coarse smoke grid (~40 sims)")
     ap.add_argument("--train-end", default="2024-12-31",
                     help="last TRAIN date; validation starts the next day")
+    ap.add_argument("--side", choices=["long", "short"], default="long",
+                    help="which book to sweep: long (NDL V2.1) or short (NDS V1.1 mirror)")
+    ap.add_argument("--combined", action="store_true",
+                    help="run the long+short Rs 20L capital-management study instead of a sweep")
     args = ap.parse_args()
     train_end = pd.Timestamp(args.train_end)
     t0 = time.time()
@@ -361,10 +490,16 @@ def main():
         sys.exit(f"ERROR: no validation window — data ends {last_bar.date()} <= "
                  f"train end {train_end.date()}")
 
-    print("Detecting V2 setups once (reused across every simulation) ...")
+    if args.combined:
+        run_combined(cache, mkt, train_end, last_bar, t0)
+        return
+
+    scanner = "nds" if args.side == "short" else "nsv2"
+    out_dir = f"{OUT_DIR}/short" if args.side == "short" else OUT_DIR
+    print(f"Detecting {scanner} setups once (reused across every simulation) ...")
     trades = []
     for sym, df in cache.items():
-        trades += events.trades_for(sym, df)
+        trades += events.trades_for(sym, df, scanner=scanner)
     print(f"  {len(trades)} entry signals")
 
     def run(rid, stage, parent, sel, exi, fill, sizing=None, rotation=None,
@@ -395,10 +530,11 @@ def main():
               f"DD {_fmt(b['val_max_drawdown_pct'])}%  {'PASS' if b['passes'] else 'fail'}")
 
     # ---- sanity: raw baseline over the trailing 5y (compare with the old study) ----
-    m5 = engine.run_backtest(cache, s1, trades=trades,
-                             window_start=last_bar - pd.DateOffset(years=5)).metrics
-    print(f"  sanity (s1 over trailing 5y, must match the strategy-matrix study): "
-          f"return {_fmt(m5['total_return_pct'])}%  {m5['num_trades']} trades")
+    if args.side == "long":
+        m5 = engine.run_backtest(cache, s1, trades=trades,
+                                 window_start=last_bar - pd.DateOffset(years=5)).metrics
+        print(f"  sanity (s1 over trailing 5y, must match the strategy-matrix study): "
+              f"return {_fmt(m5['total_return_pct'])}%  {m5['num_trades']} trades")
 
     # ---- stage A: entry filters x entry timing -------------------------------
     combos = list(grid_filters(args.quick))
@@ -445,8 +581,9 @@ def main():
 
     # ---- reports ---------------------------------------------------------------
     elapsed = time.time() - t0
-    win = write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed, args.quick)
-    print(f"\n{len(rows)} simulations in {elapsed / 60:.1f} min -> {OUT_DIR}/")
+    win = write_reports(rows, base_raw, base_krish, last_bar, train_end, elapsed,
+                        args.quick, out_dir=out_dir, side=args.side)
+    print(f"\n{len(rows)} simulations in {elapsed / 60:.1f} min -> {out_dir}/")
     print("  all_combos.csv · TOP20.md · ANSWERS.md")
     if win:
         print(f"  best gated combo: {win['id']} — {_combo_words(win)}")

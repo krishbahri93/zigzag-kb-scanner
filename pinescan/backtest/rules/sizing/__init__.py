@@ -14,3 +14,4 @@ ADD A SIZING RULE
 """
 from . import fixed_amount        # noqa: F401  (imported only for its @register side effect)
 from . import percent_of_capital  # noqa: F401
+from . import percent_of_equity   # noqa: F401  (Automation Lab: true compounding)

@@ -7,3 +7,4 @@ sees them. To add a scanner: drop a module here (see nsv2.py) and import it belo
 """
 from . import registry          # noqa: F401  (the registry API: register/get/list_scanners/Scanner)
 from . import nsv2              # noqa: F401  (self-registers "nsv2" on import)
+from . import nds               # noqa: F401  (self-registers "nds" — lab-only short mirror)

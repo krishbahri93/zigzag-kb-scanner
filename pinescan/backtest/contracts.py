@@ -29,10 +29,11 @@ class Trade:
     swing: str                       # which nested swing fired: "T1".."T4"
     entry_date: pd.Timestamp         # bar the V2 entry triggered (close crossed 0.382)
     entry_price: float               # fill price (signal-bar close; slippage added in costs.py)
-    target: float                    # take-profit level (0.618 of the A-B range)
-    sl: float                        # stop level (0.236 of the A-B range)
+    target: float                    # take-profit level (0.618 first-touch edge; BELOW entry for shorts)
+    sl: float                        # stop level (0.236 of the A-B range; ABOVE entry for shorts)
     natural_exit_date: Optional[pd.Timestamp] = None  # bar V2 hit TP/SL; None = open at data end
     natural_outcome: str = "open"    # "tp" | "sl" | "open"
+    side: str = "long"               # "long" (NDL) | "short" (NDS mirror)
 
     # --- signal-bar evidence (Automation Lab) -------------------------------------
     # Captured by events.py AT the entry bar, so entry-filter rules can replay
@@ -44,9 +45,11 @@ class Trade:
     sig_volume: Optional[float] = None
     vol_avg20: Optional[float] = None       # 20-bar volume SMA at the signal bar
     vol_prev: Optional[float] = None        # previous bar's volume
-    candle_pos: Optional[float] = None      # (close-low)/(high-low); None on zero-range bars
-    is_green: Optional[bool] = None         # close > open on the signal bar
-    rr_remaining: Optional[float] = None    # (target-close)/(close-sl); None if risk <= 0
+    candle_pos: Optional[float] = None      # close's position toward the FAVOURABLE extreme of the
+                                            # bar's range: longs (close-low)/(high-low), shorts
+                                            # (high-close)/(high-low). 1 = strongest either side.
+    is_green: Optional[bool] = None         # close > open on the signal bar (literal, side-agnostic)
+    rr_remaining: Optional[float] = None    # reward-left / risk in trade direction; None if risk <= 0
     next_open: Optional[float] = None       # NEXT bar's open — the E5 alternative fill
     next_date: Optional[pd.Timestamp] = None
 
@@ -62,8 +65,10 @@ class Position:
     opened: pd.Timestamp             # date the simulator opened it (>= trade.entry_date)
     # --- dynamic-exit runtime state (Automation Lab; owned by the exit pass) ------
     fill_price: float = 0.0          # actual fill (close or next-open variant); 0 -> trade.entry_price
-    peak_close: float = 0.0          # highest close since entry (trailing anchor)
-    stop_now: float = 0.0            # current effective stop; 0 -> trade.sl (BE/trail only raise it)
+    peak_close: float = 0.0          # BEST close since entry in trade direction (highest for
+                                     # longs, LOWEST for shorts) — the trailing anchor
+    stop_now: float = 0.0            # current effective stop; 0 -> trade.sl (BE/trail only ever
+                                     # tighten it: raise for longs, lower for shorts)
 
 
 @dataclass
@@ -86,3 +91,4 @@ class ClosedTrade:
     pnl: float                       # rupees, net of costs
     r: float                         # R-multiple = pnl / (entry-to-sl risk)
     outcome: str                     # "tp" | "sl" | "rotated" | "open_at_end"
+    side: str = "long"               # copied from the Trade (combined-book reporting)

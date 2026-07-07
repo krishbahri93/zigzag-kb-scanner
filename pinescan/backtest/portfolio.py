@@ -71,6 +71,11 @@ class Portfolio:
         trade.entry_price) and deducts the full notional from cash. The caller
         guarantees `trade.symbol` isn't already open, so positions[symbol] is set
         unconditionally. Returns the Position so the simulator and rules can track it.
+
+        SHORTS use the same cash mechanics deliberately: the full notional is locked
+        as margin (no leverage credit — conservative vs real F&O margins), and the
+        mirrored P&L is settled at close(). One capital model for both sides keeps a
+        combined long+short book's cash arithmetic trivially auditable.
         """
         qty = notional / price
         pos = Position(trade=trade, notional=notional, qty=qty, opened=date)
@@ -94,10 +99,18 @@ class Portfolio:
         """
         pos = self.positions[symbol]
         trade = pos.trade
-        proceeds = pos.qty * price
-        self.cash += proceeds
-        pnl = proceeds - pos.notional                       # GROSS (costs added by sim)
-        risk = max(pos.notional - pos.qty * trade.sl, _TINY)
+        entry_fill = pos.notional / pos.qty                 # the actual fill at open
+        if trade.side == "short":
+            # Sold at entry_fill, bought back at `price`: margin comes home + the
+            # mirrored gross P&L. Risk basis is the stop ABOVE the entry.
+            pnl = (entry_fill - price) * pos.qty            # GROSS (costs added by sim)
+            self.cash += pos.notional + pnl
+            risk = max(pos.qty * (trade.sl - entry_fill), _TINY)
+        else:
+            proceeds = pos.qty * price
+            self.cash += proceeds
+            pnl = proceeds - pos.notional                   # GROSS (costs added by sim)
+            risk = max(pos.notional - pos.qty * trade.sl, _TINY)
         closed = ClosedTrade(
             symbol=symbol,
             swing=trade.swing,
@@ -107,12 +120,13 @@ class Portfolio:
             # differ only under the lab's entry_fill="next_open" variant.
             entry_date=pos.opened,
             exit_date=date,
-            entry_price=pos.notional / pos.qty,
+            entry_price=entry_fill,
             exit_price=price,
             notional=pos.notional,
             pnl=pnl,
             r=pnl / risk,
             outcome=outcome,
+            side=trade.side,
         )
         self.closed.append(closed)
         del self.positions[symbol]
@@ -127,10 +141,14 @@ class Portfolio:
         instead of crashing the run. metrics.py turns the resulting curve into
         returns / drawdown.
         """
-        holdings = sum(
-            pos.qty * prices.get(sym, pos.trade.entry_price)
-            for sym, pos in self.positions.items()
-        )
+        holdings = 0.0
+        for sym, pos in self.positions.items():
+            px = prices.get(sym, pos.trade.entry_price)
+            if pos.trade.side == "short":
+                # margin locked at open + mark-to-market of the mirrored P&L
+                holdings += pos.notional + (pos.notional / pos.qty - px) * pos.qty
+            else:
+                holdings += pos.qty * px
         equity = self.cash + holdings
         self.equity_curve.append((date, equity))
         return equity
@@ -145,8 +163,14 @@ class Portfolio:
         rather than dividing by zero.
         """
         trade = self.positions[symbol].trade
-        span = trade.target - trade.entry_price
-        if span <= 0:                                       # target not above entry
+        # Progress in TRADE DIRECTION: for shorts the target sits below entry, so both
+        # span and progress flip sign and the same 0..1 scale falls out.
+        if trade.side == "short":
+            span = trade.entry_price - trade.target
+            gain = trade.entry_price - price
+        else:
+            span = trade.target - trade.entry_price
+            gain = price - trade.entry_price
+        if span <= 0:                                       # degenerate: target not beyond entry
             return 0.0
-        frac = (price - trade.entry_price) / span
-        return min(1.0, max(0.0, frac))                     # clamp to [0, 1]
+        return min(1.0, max(0.0, gain / span))              # clamp to [0, 1]

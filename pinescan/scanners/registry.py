@@ -39,6 +39,8 @@ class Scanner:
     run: object                    # run(df, params) -> dict (the per-bar series)
     swing_levels: object           # swing_levels(a, b, params) -> {tL, sl, ...}
     scan_symbol: object            # scan_symbol(sym, df, params) -> dict | None
+    side: str = "long"             # trade direction: "long" | "short" (the backtester
+                                   # mirrors targets/stops/features for short scanners)
 
 
 _SCANNERS = {}

@@ -75,6 +75,10 @@ class Policy:
     # Automation Lab: selection/exit rules are parametric too (entry filters, dynamic exits)
     selection_params: dict = field(default_factory=dict)
     exit_params: dict = field(default_factory=dict)
+    # Combined long+short book: optional per-side position caps (None = uncapped).
+    # With fixed sizing these ARE the capital split, e.g. 6/4 = Rs 12L long / Rs 8L short.
+    max_long: object = None
+    max_short: object = None
 
 
 def load_policy(path):
@@ -94,6 +98,7 @@ def load_policy(path):
         exit=d["exit"]["rule"], costs=d.get("costs", {}),
         selection_params=d["selection"].get("params", {}),
         exit_params=d["exit"].get("params", {}),
+        max_long=cap.get("max_long"), max_short=cap.get("max_short"),
     )
 
 
