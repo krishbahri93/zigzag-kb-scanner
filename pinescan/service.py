@@ -413,9 +413,9 @@ def refresh_market(market, on_progress=None):
         syms = [os.path.splitext(os.path.basename(f))[0]
                 for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
         if not syms:
-            # brand-new install: nothing cached to top up, so seed the whole Nifty-500 first
+            # brand-new install: nothing cached to top up, so seed the whole Total Market first
             # (resumable; same path as scripts/backfill_india.py)
-            _say("First India run — downloading the Nifty-500 history (10–30 min, resumable) …")
+            _say("First India run — downloading the Nifty Total Market history (10–30 min, resumable) …")
             syms, _sectors = india.get_universe()
             india.backfill(syms)
         else:

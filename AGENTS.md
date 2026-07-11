@@ -6,7 +6,7 @@ Update it at the end of every phase (that update is part of the phase's definiti
 ## What this is
 
 A TradingView Pine-Script strategy ("ZigZag KB Nested Swings") ported to Python and run as a
-stock scanner over NSE Nifty 500 (India) and US equities, with a FastAPI dashboard, a paper-money
+stock scanner over the NSE Nifty Total Market (~750, India) and US equities, with a FastAPI dashboard, a paper-money
 forward test, and a policy backtester. The owner (Krish) understands markets, not code — all code
 is written and maintained by AI agents, and every design choice should favor agent maintainability
 (machine-readable state, one-command verbs, tests as gates) over human aesthetics.
@@ -36,7 +36,7 @@ The phased master plan lives with the owner's Claude Code sessions
   - `nsv2_engine.py` / `nsv2_scanner.py` — the one ported strategy (long-only, daily)
   - `scanners/registry.py` — plugin registry; a new ported strategy self-registers and
     auto-appears in the app and forward test (template: `scanners/nsv2.py`)
-  - `markets/` — data layers: `us.py` (Polygon EOD), `india.py` (Dhan; Nifty 500 + sectors)
+  - `markets/` — data layers: `us.py` (Polygon EOD), `india.py` (Dhan; Nifty Total Market + sectors)
   - `backtest/` — day-by-day portfolio simulator, rules registry, JSON policies, metrics
   - `service.py` — orchestration facade (scan, refresh, forward standings, key storage)
 - `app/` — FastAPI + Jinja2 local web app (scanner / forward / settings pages), `jobs.py` =

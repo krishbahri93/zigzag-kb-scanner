@@ -57,10 +57,10 @@ class Market:
 
 
 def _india_market():
-    """India: NSE Nifty-500 stocks + Nifty/Sensex benchmark, both from Dhan."""
+    """India: NSE Nifty Total Market stocks + Nifty/Sensex benchmark, both from Dhan."""
     def load():
         # Use the cache dir itself as the universe (the source of truth) — don't re-fetch the
-        # Nifty-500 list over the network, which can fall back to a 20-stock shortlist.
+        # Total Market list over the network, which can fall back to a 20-stock shortlist.
         syms = [os.path.splitext(os.path.basename(f))[0]
                 for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
         cache = india.load_cache(syms)
@@ -80,7 +80,7 @@ def _india_market():
             out[name] = df["Close"] if (df is not None and len(df)) else None
         return out
 
-    return Market("india", "India (NSE Nifty-500)", "Rs 20,00,000", "Rs ", "₹",
+    return Market("india", "India (NSE Total Market)", "Rs 20,00,000", "Rs ", "₹",
                   "pinescan/backtest/policies", load, bench)
 
 

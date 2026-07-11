@@ -1,5 +1,5 @@
 """
-India (NSE) market data — Nifty 500 universe + daily/intraday OHLCV.
+India (NSE) market data — Nifty Total Market (750) universe + daily/intraday OHLCV.
 
 Single source: the Dhan broker API. Equities (NSE_EQ) and the benchmark indices
 (IDX_I, e.g. Nifty 50 / Sensex) both come from the one authenticated Dhan account,
@@ -42,11 +42,12 @@ INDEX_IDS = {"Nifty 50": "13", "Sensex": "51"}
 
 
 # ============================================================================
-# UNIVERSE — NSE Nifty 500
+# UNIVERSE — NSE Nifty Total Market (~750: large + mid + small + microcaps,
+# including recent IPOs like ENVIRO/EIEL that the old Nifty 500 list missed)
 # ============================================================================
 
-def load_nifty500():
-    """Fetch NSE's official Nifty 500 list with sector labels.
+def load_total_market():
+    """Fetch NSE's official Nifty Total Market list with sector labels.
 
     Returns (symbols_list, {symbol: sector_name}).
     Falls back to a 20-stock shortlist if NSE blocks the request.
@@ -54,7 +55,7 @@ def load_nifty500():
     import io
     import requests
     try:
-        url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+        url = "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv"
         txt = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25).text
         d = pd.read_csv(io.StringIO(txt))
         sym = d["Symbol"].astype(str).str.strip()
@@ -63,7 +64,7 @@ def load_nifty500():
               if "Company Name" in d.columns else sym)
         return sym.tolist(), dict(zip(sym, ind)), dict(zip(sym, nm))
     except Exception as e:
-        print(f"Could not fetch NSE Nifty 500 list ({e}); using shortlist.")
+        print(f"Could not fetch the NSE Nifty Total Market list ({e}); using shortlist.")
         fb = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "BHARTIARTL",
               "ITC", "LT", "HINDUNILVR", "KOTAKBANK", "AXISBANK", "BAJFINANCE", "MARUTI",
               "SUNPHARMA", "TATAMOTORS", "TITAN", "ULTRACEMCO", "ASIANPAINT", "NESTLEIND"]
@@ -300,9 +301,9 @@ _UNIVERSE_CACHE_FILE = "data/cache/india_universe.json"
 
 
 def get_universe(max_age_days=7):
-    """(symbols, {symbol: sector}) for the NSE Nifty 500 — disk-cached for max_age_days.
-    NSE archives is slow and sometimes blocks cloud IPs, so scans must never depend on it
-    being reachable; the constituent list barely changes week to week."""
+    """(symbols, {symbol: sector}) for the NSE Nifty Total Market (~750) — disk-cached for
+    max_age_days. NSE archives is slow and sometimes blocks cloud IPs, so scans must never
+    depend on it being reachable; the constituent list barely changes week to week."""
     import json
     import time
     try:
@@ -312,7 +313,7 @@ def get_universe(max_age_days=7):
                 return d["symbols"], d.get("sectors", {})
     except Exception:
         pass
-    syms, sectors, names = load_nifty500()
+    syms, sectors, names = load_total_market()
     if sectors:                                   # never cache the 20-stock fallback
         try:
             os.makedirs(os.path.dirname(_UNIVERSE_CACHE_FILE), exist_ok=True)
