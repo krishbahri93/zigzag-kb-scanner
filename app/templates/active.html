@@ -18,9 +18,9 @@
 </table></div>
 <div class="mcards" id="mcards"></div>
 
-<p class="foot">Active = trades whose entry fired on an <b>earlier</b> trading day (per the system).
-Amber rows are within 3% of their stop — check those first. R = profit so far measured in units of
-the initial risk. Informational only — not financial advice.</p>
+<p class="foot">Active Trades = trades whose entry fired on an <b>earlier</b> trading day (per the
+system). Amber rows are within 3% of their stop — check those first. Tap a row for full details,
+including R (profit so far in units of the initial risk). Informational only — not financial advice.</p>
 
 <script>
 (function () {
@@ -28,18 +28,17 @@ the initial risk. Informational only — not financial advice.</p>
   const COLS = [
     { k: "sym",        t: "Symbol"     },
     { k: "swing",      t: "Trade"      },
-    { k: "entry_date", t: "Entered"    },
-    { k: "_days",      t: "Bars held"  },
     { k: "_entry",     t: "Entry"      },
     { k: "ltp",        t: "CMP"        },
-    { k: "_since",     t: "Since entry %" },
+    { k: "_since",     t: "PnL"        },
     { k: "day_pct",    t: "Day %"      },
-    { k: "_r",         t: "R"          },
     { k: "_totp",      t: "To target %"},
-    { k: "_sl",        t: "Stop"       },
+    { k: "_sl",        t: "Stop Loss"  },
     { k: "vol_x",      t: "Vol ×"      },
+    { k: "entry_date", t: "Entered On" },
+    { k: "_days",      t: "Bars Held"  },
   ];
-  let trades = [], sortK = "_r", sortDir = -1, expanded = null;
+  let trades = [], sortK = "_since", sortDir = -1, expanded = null;
   const F = { sector: "", swing: "", q: "", near: "" };
 
   const rMult  = t => (t.entry_hi && t.sl && t.entry_hi > t.sl && t.ltp !== null)
@@ -108,18 +107,17 @@ the initial risk. Informational only — not financial advice.</p>
       return `<tr class="datarow ${nearSL(t) ? "warn" : ""}" data-i="${i}">
         <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${nm}${warnTag}</td>
         <td style="text-align:left"><span class="tn">${t.swing}</span></td>
-        <td class="muted">${t.entry_date || "—"}</td>
-        <td>${t.bars_in_state ?? "—"}</td>
         <td>${K.nf(t.entry_hi)}</td>
         <td>${K.nf(t.ltp)}</td>
         <td class="${se > 0 ? "pos" : se < 0 ? "neg" : ""}">${se === null ? "—" : (se > 0 ? "+" : "") + K.nf(se, 1) + "%"}</td>
         <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</td>
-        <td class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</td>
         <td>${tp === null ? "—" : "+" + K.nf(tp, 1) + "%"}</td>
         <td>${K.nf(t.sl)}${nearSL(t) ? " ⚠" : ""}</td>
         <td>${(t.vol_x === null || t.vol_x === undefined) ? "—" : (t.vol_x >= 2 ? `<span class="volx">⚡ ${K.nf(t.vol_x, 1)}×</span>` : K.nf(t.vol_x, 1) + "×")}</td>
+        <td class="muted">${t.entry_date || "—"}</td>
+        <td>${t.bars_in_state ?? "—"}</td>
       </tr>` + (expanded === key(t) ? detailRow(t) : "");
-    }).join("") || `<tr><td colspan="12" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
+    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
 
     document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
       if (e.target.closest("a")) return;
@@ -139,8 +137,8 @@ the initial risk. Informational only — not financial advice.</p>
         <div class="r1">
           <a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>
           <span class="tn">${t.swing}</span>${warnTag}
-          <span class="right num"><b class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</b><br>
-            <span class="${se > 0 ? "pos" : se < 0 ? "neg" : "muted"}" style="font-size:12px">${se === null ? "" : (se > 0 ? "+" : "") + K.nf(se, 1) + "% since entry"}</span></span>
+          <span class="right num"><b class="${se > 0 ? "pos" : se < 0 ? "neg" : ""}">${se === null ? "—" : (se > 0 ? "+" : "") + K.nf(se, 1) + "%"}</b><br>
+            <span class="muted" style="font-size:12px">${r === null ? "" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</span></span>
         </div>
         <div class="r2">
           <span>CMP <b>${K.nf(t.ltp)}</b> <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}">${(dp === null || dp === undefined) ? "" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
@@ -165,12 +163,14 @@ the initial risk. Informational only — not financial advice.</p>
   }
 
   function detailRow(t) {
-    return `<tr class="detail"><td colspan="12">
+    const r = rMult(t);
+    return `<tr class="detail"><td colspan="11">
       <div class="swings">
         <div class="swingbox"><b>${t.swing}</b> · depth ${K.nf(t.depth_pct, 1)}% · peak A ${K.nf(t.A)}<br>
           Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
-        <div class="swingbox">Sector: <b>${t.sector || "—"}</b><br>
-          B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
+        <div class="swingbox">R so far: <b class="${r > 0 ? "pos" : r < 0 ? "neg" : ""}">${r === null ? "—" : (r > 0 ? "+" : "") + K.nf(r, 2) + "R"}</b>
+          <span class="muted">(profit in units of initial risk)</span><br>
+          Sector: <b>${t.sector || "—"}</b> · B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
       </div></td></tr>`;
   }
 
@@ -185,7 +185,7 @@ the initial risk. Informational only — not financial advice.</p>
     if (!res.scan) { $("meta").textContent = "No scan yet — press Refresh on the Scanner tab."; return; }
     trades = K.flatten(res.scan).filter(t => t.sig === "Active");
     const warn = trades.filter(nearSL).length;
-    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · <b>${trades.length}</b> active trades` +
+    $("meta").innerHTML = `Data as of ${K.fmtDate(res.scan.data_asof)} · <b>${trades.length}</b> active trades` +
       (warn ? ` · <span class="neg">${warn} near stop ⚠</span>` : "");
     const sectors = [...new Set(trades.map(t => t.sector).filter(Boolean))].sort();
     $("fSector").innerHTML = '<option value="">All sectors</option>' +
