@@ -28,15 +28,16 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
   const K = window.KWM, $ = id => document.getElementById(id);
   const COLS = [
     { k: "sym",          t: "Symbol"      },
-    { k: "sig",          t: "Signal"      },
-    { k: "_fresh",       t: "•"           },
+    { k: "swing",        t: "Zone"        },
+    { k: "sig",          t: "Status"      },
     { k: "ltp",          t: "CMP"         },
     { k: "day_pct",      t: "Day %"       },
     { k: "_entry",       t: "Entry"       },
     { k: "_sl",          t: "Stop"        },
+    { k: "tp_lo",        t: "Target"      },
     { k: "vol_x",        t: "Vol ×"       },
-    { k: "rr",           t: "R:R"         },
-    { k: "dist_pct",     t: "To entry %"  },
+    { k: "rr",           t: "RR"          },
+    { k: "dist_pct",     t: "Price from entry %" },
     { k: "confirmed_at", t: "Confirmed"   },
   ];
   let trades = [], sortK = "rr", sortDir = -1, expanded = null, allRows = [], LIVEBAR = false;
@@ -46,8 +47,9 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
   const isProv = t => LIVEBAR && t.sig === "Triggered" && t.bars_in_state <= 1;
 
   // "Entry" = the trigger price (band top, 0.382): the level whose daily-close crossing fires
-  const val = (t, k) => k === "_entry" ? t.entry_hi
-            : k === "_sl" ? t.sl : k === "_fresh" ? (t.fresh ? 1 : 0) : t[k];
+  const val = (t, k) => k === "_entry" ? t.entry_hi : k === "_sl" ? t.sl : t[k];
+  // fresh signals get a small NEW pill beside the symbol (replaces the old dot column)
+  const newTag = t => t.fresh ? '<span class="newtag" title="Fresh — new this scan">NEW</span>' : "";
 
   function visible() {
     return trades.filter(t => t.sig !== "Active")
@@ -65,7 +67,7 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     const prov = isProv(t)
       ? ' <span class="badge b-appr" title="Trading above entry intraday — not closed above yet. Confirms or reverts at 15:30.">PROV</span>'
       : "";
-    return `<span class="tn">${t.swing}</span><span class="badge ${cls}">${t.sig}</span>${prov}`;
+    return `<span class="badge ${cls}">${t.sig}</span>${prov}`;   // Zone chip is its own column now
   }
 
   function render() {
@@ -127,19 +129,20 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
       const dp = t.day_pct;
       const nm = t.name ? `<br><span class="muted" style="font-size:10.5px">${t.name.slice(0, 30)}</span>` : "";
       return `<tr class="datarow" data-i="${i}">
-        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${nm}</td>
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${newTag(t)}${nm}</td>
+        <td style="text-align:left"><span class="tn">${t.swing}</span></td>
         <td style="text-align:left">${badge(t)}</td>
-        <td style="width:18px;text-align:center">${t.fresh ? '<span class="freshdot" title="Fresh — new this scan"></span>' : ""}</td>
         <td>${K.nf(t.ltp)}</td>
         <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</td>
         <td>${K.nf(t.entry_hi)}</td>
         <td>${K.nf(t.sl)}</td>
+        <td>${K.nf(t.tp_lo)}</td>
         <td>${(t.vol_x === null || t.vol_x === undefined) ? "—" : (t.vol_x >= 2 ? `<span class="volx">⚡ ${K.nf(t.vol_x, 1)}×</span>` : K.nf(t.vol_x, 1) + "×")}</td>
         <td>${K.nf(t.rr)}</td>
         <td>${(t.dist_pct === null || t.dist_pct === undefined) ? "—" : K.nf(t.dist_pct) + "%"}</td>
         <td class="muted">${K.rel(t.confirmed_at)}</td>
       </tr>` + (expanded === key(t) ? detailRow(t) : "");
-    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No setups match the current filters.</td></tr>`;
+    }).join("") || `<tr><td colspan="12" class="muted" style="padding:24px;text-align:center">No setups match the current filters.</td></tr>`;
 
     document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
       if (e.target.closest("a")) return;
@@ -154,7 +157,7 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
       return `<div class="mcard" data-i="${i}">
         <div class="r1">
           <a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>
-          ${badge(t)} ${t.fresh ? '<span class="freshdot"></span>' : ""}
+          <span class="tn">${t.swing}</span>${badge(t)}${newTag(t)}
           <span class="right num"><b>${K.nf(t.ltp)}</b><br>
             <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}" style="font-size:12px">
               ${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
@@ -162,14 +165,16 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
         <div class="r2">
           <span>Entry <b>${K.nf(t.entry_hi)}</b></span>
           <span>Stop <b>${K.nf(t.sl)}</b></span>
-          <span>R:R <b>${K.nf(t.rr)}</b></span>
+          <span>Target <b>${K.nf(t.tp_lo)}</b></span>
           <span>${(t.vol_x !== null && t.vol_x >= 2) ? `<span class="volx">⚡ ${K.nf(t.vol_x, 1)}×</span>` : "Vol " + (t.vol_x == null ? "—" : K.nf(t.vol_x, 1) + "×")}</span>
         </div>
         ${expanded === key(t) ? `<div class="more r2">
           <span>Entry band <b>${K.band(t.entry_lo, t.entry_hi)}</b></span>
-          <span>Target <b>${K.band(t.tp_lo, t.tp_hi)}</b></span>
-          <span>To entry <b>${t.dist_pct == null ? "—" : K.nf(t.dist_pct) + "%"}</b></span>
+          <span>Target band <b>${K.band(t.tp_lo, t.tp_hi)}</b></span>
+          <span>Price from entry <b>${t.dist_pct == null ? "—" : K.nf(t.dist_pct) + "%"}</b></span>
+          <span>Target potential <b>${(t.tp_lo && t.ltp) ? "+" + K.nf((t.tp_lo / t.ltp - 1) * 100, 1) + "%" : "—"}</b></span>
           <span>Depth <b>${K.nf(t.depth_pct, 1)}%</b></span>
+          <span>R:R <b>${K.nf(t.rr)}</b></span>
           <span>${t.sector || ""}</span>
           <span class="muted">${K.rel(t.confirmed_at)}</span></div>` : ""}
       </div>`;
@@ -185,7 +190,7 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
   }
 
   function detailRow(t) {
-    return `<tr class="detail"><td colspan="11">
+    return `<tr class="detail"><td colspan="12">
       <div class="swings">
         <div class="swingbox"><b>${t.swing}</b> · depth ${K.nf(t.depth_pct, 1)}% · peak A ${K.nf(t.A)}<br>
           Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
@@ -222,9 +227,9 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
         `If today wasn't a trading holiday, press Refresh (and tell Claude if it happens again).</div>`
       : "";
     $("meta").innerHTML = staleTag +
-      `Data as of ${res.scan.data_asof} · scanned ${res.scan.scanned_ok} of ` +
+      `Data as of ${K.fmtDate(res.scan.data_asof)} · Scanner ${res.scan.scanned_ok} of ` +
       `${res.scan.universe_size} symbols · <b>${todays}</b> to act on today · ` +
-      `<a href="/active?market=${K.MARKET}">${nAct} active trades →</a>${liveTag}`;
+      `<a href="/active?market=${K.MARKET}">${nAct} active trades</a>${liveTag}`;
     const sectors = [...new Set(trades.filter(t => t.sig !== "Active").map(t => t.sector).filter(Boolean))].sort();
     $("fSector").innerHTML = '<option value="">All sectors</option>' +
       sectors.map(s => `<option${s === F.sector ? " selected" : ""}>${s}</option>`).join("");

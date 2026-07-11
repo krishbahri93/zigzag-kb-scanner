@@ -23,6 +23,17 @@
       return m < 60 ? Math.round(m) + "m ago"
            : m < 60 * 36 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
     };
+    // "2026-07-10" -> "10th July 2026 (Friday)" — the meta-line date format
+    const fmtDate = iso => {
+      if (!iso) return "—";
+      const d = new Date(iso.length > 10 ? iso : iso + "T00:00:00");
+      if (isNaN(d)) return iso;
+      const n = d.getDate();
+      const suf = (n % 10 === 1 && n !== 11) ? "st" : (n % 10 === 2 && n !== 12) ? "nd"
+                : (n % 10 === 3 && n !== 13) ? "rd" : "th";
+      return n + suf + " " + d.toLocaleDateString("en-GB", { month: "long" }) + " " +
+             d.getFullYear() + " (" + d.toLocaleDateString("en-GB", { weekday: "long" }) + ")";
+    };
     const tv = s => MARKET === "india"
         ? "https://www.tradingview.com/chart/?symbol=NSE:" + encodeURIComponent(s)
         : "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(s);
@@ -75,7 +86,7 @@
         a.click();
       };
     }
-    return { MARKET, nf, band, rel, tv, tvsym, flatten, fetchScan, copyButtons };
+    return { MARKET, nf, band, rel, fmtDate, tv, tvsym, flatten, fetchScan, copyButtons };
   })();
 </script>
 <style>
@@ -178,6 +189,9 @@
         border:1px solid var(--border); border-radius:6px; padding:2px 6px; margin-right:6px; }
   .freshdot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent);
               vertical-align:middle; }
+  .newtag { display:inline-block; font-size:9px; font-weight:800; letter-spacing:.5px; color:#fff;
+            background:var(--accent); border-radius:5px; padding:2px 5px; margin-left:6px;
+            vertical-align:2px; }
   .volx { color:var(--orange); font-weight:700; }
   .pos { color:var(--accent-deep); } .neg { color:var(--red); }
   .err { color:var(--red); } .muted { color:var(--muted); }
@@ -229,7 +243,7 @@
   </div>
   <div class="navrow">
     <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
-    <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active</a>
+    <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active Trades</a>
     <a class="tab {% if page == 'targets' %}on{% endif %}" href="/targets?market={{ market }}">Target Hits</a>
     <a class="tab {% if page == 'stops' %}on{% endif %}" href="/stops?market={{ market }}">Stop Hits</a>
     <a class="tab {% if page == 'alerts' %}on{% endif %}" href="/alerts?market={{ market }}">Alerts</a>
