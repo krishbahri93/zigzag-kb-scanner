@@ -33,7 +33,7 @@ target band. Informational only — not financial advice.</p>
     { k: "depth_pct", t: "Depth %"   },
   ];
   let trades = [], sortK = "tp_date", sortDir = -1, expanded = null;
-  const F = { swing: "", q: "" };
+  const F = { swing: "", q: "", win: "" };          // win: "" = 30 days, "wk" = this week
 
   const gain = t => (t.entry_hi && t.tp_lo) ? (t.tp_lo / t.entry_hi - 1) * 100 : null;
   const val = (t, k) => k === "_gain" ? gain(t) : t[k];
@@ -42,6 +42,7 @@ target band. Informational only — not financial advice.</p>
 
   function visible() {
     return trades.filter(t =>
+      (!F.win || withinDays(t.tp_date, 7)) &&
       (!F.swing || t.swing === F.swing) &&
       (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
   }
@@ -57,10 +58,18 @@ target band. Informational only — not financial advice.</p>
     const week = trades.filter(t => withinDays(t.tp_date, 7)).length;
     const avg = trades.length
         ? trades.reduce((s, t) => s + (gain(t) || 0), 0) / trades.length : null;
+    const held = trades.filter(t => t.held_bars != null);
+    const avgHold = held.length
+        ? held.reduce((s, t) => s + t.held_bars, 0) / held.length : null;
     $("cards").innerHTML = `
-      <div class="kcard v-trig"><div class="lbl">🎯 Hits — 30 days</div><div class="val">${trades.length}</div></div>
-      <div class="kcard v-zone"><div class="lbl">This week</div><div class="val">${week}</div></div>
-      <div class="kcard v-fresh"><div class="lbl">Avg system gain</div><div class="val">${avg === null ? "—" : "+" + K.nf(avg, 1) + "%"}</div></div>`;
+      <div class="kcard v-trig ${!F.win ? "on" : ""}" data-w=""><div class="lbl">🎯 Hits — 30 days</div><div class="val">${trades.length}</div></div>
+      <div class="kcard v-zone ${F.win === "wk" ? "on" : ""}" data-w="wk"><div class="lbl">This week</div><div class="val">${week}</div></div>
+      <div class="kcard v-fresh"><div class="lbl">Avg system gain</div><div class="val">${avg === null ? "—" : "+" + K.nf(avg, 1) + "%"}</div></div>
+      <div class="kcard"><div class="lbl">Avg holding</div><div class="val">${avgHold === null ? "—" : K.nf(avgHold, 0) + " bars"}</div></div>`;
+    document.querySelectorAll("#cards .kcard[data-w]").forEach(el => el.onclick = () => {
+      F.win = (el.dataset.w && F.win !== el.dataset.w) ? el.dataset.w : "";
+      render();
+    });
 
     $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
       `<span class="chip ${F.swing === s ? "on" : ""}" data-s="${s}">${s || "All"}</span>`).join("");
@@ -118,7 +127,7 @@ target band. Informational only — not financial advice.</p>
   function detailRow(t) {
     return `<tr class="detail"><td colspan="7">
       <div class="swings"><div class="swingbox"><b>${t.swing}</b> · peak A ${K.nf(t.A)} ·
-        B ${K.nf(t.B)} · sector ${t.sector || "—"}<br>
+        B ${K.nf(t.B)} · sector ${t.sector || "—"} · held ${t.held_bars ?? "—"} bars<br>
         Entry band ${K.band(t.entry_lo, t.entry_hi)} · Target band ${K.band(t.tp_lo, t.tp_hi)} ·
         Stop ${K.nf(t.sl)}</div></div></td></tr>`;
   }
@@ -138,7 +147,7 @@ target band. Informational only — not financial advice.</p>
         }
       });
     });
-    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · <b>${trades.length}</b> target hits in the last ${DAYS} days`;
+    $("meta").innerHTML = `Data as of ${K.fmtDate(res.scan.data_asof)} · <b>${trades.length}</b> target hits in the last ${DAYS} days`;
     render();
   }
   load();

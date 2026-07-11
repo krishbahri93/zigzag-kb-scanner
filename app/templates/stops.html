@@ -34,7 +34,7 @@ down to the stop. Informational only — not financial advice.</p>
     { k: "_now",         t: "Now"        },
   ];
   let trades = [], sortK = "last_sl_date", sortDir = -1, expanded = null;
-  const F = { swing: "", q: "" };
+  const F = { swing: "", q: "", win: "", play: false };   // win "wk" = this week; play = back in play
 
   const loss = t => (t.entry_hi && t.sl) ? (t.sl / t.entry_hi - 1) * 100 : null;
   const nowSig = t => t.state === "IN" ? "Re-entered"
@@ -46,6 +46,8 @@ down to the stop. Informational only — not financial advice.</p>
 
   function visible() {
     return trades.filter(t =>
+      (!F.win || withinDays(t.last_sl_date, 7)) &&
+      (!F.play || nowSig(t) !== "Waiting") &&
       (!F.swing || t.swing === F.swing) &&
       (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
   }
@@ -60,10 +62,20 @@ down to the stop. Informational only — not financial advice.</p>
 
     const week = trades.filter(t => withinDays(t.last_sl_date, 7)).length;
     const rearmed = trades.filter(t => nowSig(t) !== "Waiting").length;
+    const avgL = trades.length
+        ? trades.reduce((s, t) => s + (loss(t) || 0), 0) / trades.length : null;
     $("cards").innerHTML = `
-      <div class="kcard v-appr"><div class="lbl">🛑 Stop hits — 30 days</div><div class="val">${trades.length}</div></div>
-      <div class="kcard"><div class="lbl">This week</div><div class="val">${week}</div></div>
-      <div class="kcard v-zone"><div class="lbl">Back in play already</div><div class="val">${rearmed}</div></div>`;
+      <div class="kcard v-appr ${!F.win && !F.play ? "on" : ""}" data-f="all"><div class="lbl">🛑 Stop hits — 30 days</div><div class="val">${trades.length}</div></div>
+      <div class="kcard ${F.win ? "on" : ""}" data-f="wk"><div class="lbl">This week</div><div class="val">${week}</div></div>
+      <div class="kcard v-zone ${F.play ? "on" : ""}" data-f="play"><div class="lbl">Back in play already</div><div class="val">${rearmed}</div></div>
+      <div class="kcard"><div class="lbl">Avg loss</div><div class="val neg">${avgL === null ? "—" : K.nf(avgL, 1) + "%"}</div></div>`;
+    document.querySelectorAll("#cards .kcard[data-f]").forEach(el => el.onclick = () => {
+      const f = el.dataset.f;
+      if (f === "all") { F.win = ""; F.play = false; }
+      else if (f === "wk") F.win = F.win ? "" : "wk";
+      else if (f === "play") F.play = !F.play;
+      render();
+    });
 
     $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
       `<span class="chip ${F.swing === s ? "on" : ""}" data-s="${s}">${s || "All"}</span>`).join("");
@@ -141,7 +153,7 @@ down to the stop. Informational only — not financial advice.</p>
         }
       });
     });
-    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · <b>${trades.length}</b> stop hits in the last ${DAYS} days`;
+    $("meta").innerHTML = `Data as of ${K.fmtDate(res.scan.data_asof)} · <b>${trades.length}</b> stop hits in the last ${DAYS} days`;
     render();
   }
   load();
