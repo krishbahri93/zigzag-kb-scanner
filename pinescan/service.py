@@ -457,6 +457,20 @@ def refresh_market(market, on_progress=None):
         else:
             _say("Refreshing India (Dhan) …")
             india.refresh_recent(syms, days=max(15, gap))
+            # Top up NEW universe constituents (index additions / a widened universe): the
+            # scan universe is the cache DIRECTORY, and refresh_recent only tops up files
+            # that already exist — without this, a new symbol never enters the cache and
+            # the universe silently stays at its install-day size (was: stuck at 489).
+            try:
+                uni, _sectors = india.get_universe()
+                cached = set(syms)
+                missing = [s for s in uni if s not in cached]
+                if missing:
+                    _say(f"Universe has {len(missing)} new symbols — downloading their history …")
+                    india.backfill(missing)          # resumable; skips already-cached symbols
+            except Exception:
+                print("  WARNING: universe top-up failed — scan continues on cached symbols:")
+                traceback.print_exc()
     # Recompute + cache the scan and forward results so the pages serve them instantly.
     _say("Scanning the universe …")
     try:
