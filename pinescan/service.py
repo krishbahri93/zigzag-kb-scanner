@@ -27,6 +27,8 @@ HOW TO EXTEND
 import os
 import glob
 import json
+import math
+import traceback
 import datetime as dt
 
 import pandas as pd
@@ -122,12 +124,16 @@ def _enrich_row(r, df, sector, vol_frac=1.0):
     r["sector"] = sector or ""
     try:
         c = df["Close"]
-        r["day_pct"] = round(float(c.iloc[-1] / c.iloc[-2] - 1.0) * 100, 2) if len(c) >= 2 else None
+        v = float(c.iloc[-1] / c.iloc[-2] - 1.0) * 100 if len(c) >= 2 else None
+        # round() passes NaN through untouched — a NaN close must yield None, never a NaN
+        # in the payload (json.dumps(allow_nan=False) would reject the whole scan).
+        r["day_pct"] = round(v, 2) if v is not None and math.isfinite(v) else None
     except Exception:
         r["day_pct"] = None
     try:
         avg = float(df["Volume"].tail(20).mean()) * vol_frac
-        r["vol_x"] = round(float(df["Volume"].iloc[-1]) / avg, 2) if avg > 0 else None
+        vx = float(df["Volume"].iloc[-1]) / avg if avg > 0 else None
+        r["vol_x"] = round(vx, 2) if vx is not None and math.isfinite(vx) else None
     except Exception:
         r["vol_x"] = None
     # per-trade R:R + distance (every swing is an independent trade on the dashboard)
@@ -147,6 +153,20 @@ def _enrich_row(r, df, sector, vol_frac=1.0):
     act = next((s for s in r.get("swings", []) if s.get("swing") == r.get("active")), None)
     if act:
         r["rr"], r["dist_pct"] = act["rr"], act["dist_pct"]
+
+
+def _json_safe(o):
+    """Recursively replace non-finite floats (NaN/Inf) with None. The scan JSON is written with
+    allow_nan=False (strict, correct) — but that means ONE stray NaN in ONE row silently sank the
+    whole scan write inside refresh_market's try/except (the 2026-07-09/10 stall). Belt-and-braces
+    with the point fixes in _enrich_row."""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
 
 
 _SIGNAL_STATE = "data/status/signal_state.json"
@@ -246,7 +266,7 @@ def scan_market(market, scanner="nsv2", live=False):
     actionable = [r for r in rows if (r["in_band"] or r["approaching"] or r["fired_entry"])
                   and not r["expired"]]
     _stamp_confirmed(market, scanner, rows)
-    return {
+    return _json_safe({
         "engine": f"{sc.name} ({sc.display}, faithful port)",
         "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "live_bar": bool(live_partials),           # last bar is today's forming bar, not a close
@@ -260,7 +280,7 @@ def scan_market(market, scanner="nsv2", live=False):
         "actionable_count": len(actionable),
         "actionable": [r["sym"] for r in actionable],
         "rows": rows,
-    }
+    })
 
 
 def _scan_path(market, scanner):
@@ -429,12 +449,16 @@ def refresh_market(market, on_progress=None):
         io_safe.atomic_write_text(_scan_path(market, "nsv2"), json.dumps(scan, allow_nan=False))
         notify.process_scan_alerts(scan, market, live=False)   # ✅ confirms + 🎯/🛑 hits + EOD summary
     except Exception:
-        pass
+        # Never sink the refresh — but never fail SILENTLY either: a swallowed scan error
+        # left the dashboard serving stale signals for two days (2026-07-09/10).
+        print("  WARNING: the scan step failed — the dashboard keeps the PREVIOUS scan:")
+        traceback.print_exc()
     _say("Updating the forward test …")
     try:
         forward_standings(market)
     except Exception:
-        pass
+        print("  WARNING: the forward-test step failed (scan above already saved):")
+        traceback.print_exc()
     return {"ok": True, "msg": f"Refreshed {market}."}
 
 

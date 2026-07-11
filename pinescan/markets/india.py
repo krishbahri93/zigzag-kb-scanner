@@ -398,11 +398,16 @@ def refresh_recent(symbols, days=15, progress_every=50):
     os.makedirs(CACHE_DIR, exist_ok=True)
     total = len(symbols)
     done = updated = 0
+    failed = []
     print(f"  refresh_recent: {total} symbols, last ~{days}d each …")
     for sym in symbols:
         done += 1
         recent = _fetch_dhan_daily(sym, days=days)
-        if recent is not None and len(recent) > 0:
+        if recent is None or len(recent) == 0:
+            # collected + named in the summary line, so a held symbol whose bar didn't come
+            # through (the ATUL case, 2026-07-09/10) is visible in the job log
+            failed.append(sym)
+        else:
             fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
             old = io_safe.read_parquet_safe(fp)          # None if absent OR corrupt -> treat as fresh
             if old is not None:
@@ -415,6 +420,10 @@ def refresh_recent(symbols, days=15, progress_every=50):
         if done % progress_every == 0 or done == total:
             print(f"    refresh {done}/{total} ({updated} updated) … {sym}")
     print(f"  refresh_recent complete: {updated}/{total} symbols updated")
+    if failed:
+        head = ", ".join(failed[:10])
+        more = f" … +{len(failed) - 10} more" if len(failed) > 10 else ""
+        print(f"  refresh_recent: {len(failed)} symbols returned no data: {head}{more}")
 
 
 def load_cache(symbols):

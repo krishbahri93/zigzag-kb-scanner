@@ -69,9 +69,13 @@ class NearestToTargetBand(RotationRule):
         while band <= self.max:
             # In-band = within the final band% of the way to target (see file header).
             threshold = 1 - band / 100
+            # A held symbol can be missing from today's prices (its bar didn't come through
+            # in the refresh — e.g. ATUL, 2026-07-09/10). It can't be evaluated, so it can't
+            # be rotated out today; skipping it must not sink the whole close run.
             in_band = [
                 sym for sym in portfolio.positions
-                if portfolio.distance_to_target(sym, prices[sym]) >= threshold
+                if sym in prices
+                and portfolio.distance_to_target(sym, prices[sym]) >= threshold
             ]
             if in_band:
                 # Closest to target = the largest distance_to_target among them.

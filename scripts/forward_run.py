@@ -96,7 +96,15 @@ def main():
     else:
         print("  (skipping data refresh — weekend or --no-refresh)")
 
-    data = service.forward_standings(market, args.start)
+    try:
+        data = service.forward_standings(market, args.start)
+    except Exception:
+        import traceback
+        print("\nERROR: the forward test (paper-money standings) failed. The day's data refresh and")
+        print("scan were already saved above, so the TRADING dashboard is unaffected — only the")
+        print("paper-money standings did not update today. Traceback:")
+        traceback.print_exc()
+        sys.exit(1)
     if data is None:
         sys.exit("No cached symbols — run the backfill first.")
 
