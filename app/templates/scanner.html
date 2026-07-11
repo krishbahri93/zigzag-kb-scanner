@@ -212,7 +212,17 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     const liveTag = LIVEBAR
       ? ` · <b style="color:var(--amber)">◉ LIVE BAR</b> <span class="muted">(signals confirm at the 15:30 close)</span>`
       : "";
-    $("meta").innerHTML = `Data as of ${res.scan.data_asof} · scanned ${res.scan.scanned_ok} of ` +
+    // stale-data banner: the scan's newest confirmed bar is older than the last expected
+    // trading day (weekends handled server-side; holidays aren't — hence the soft wording)
+    const stale = !LIVEBAR && res.scan.expected_asof && res.scan.data_asof
+      && res.scan.data_asof < res.scan.expected_asof;
+    const staleTag = stale
+      ? `<div style="background:var(--red);color:#fff;padding:8px 12px;border-radius:8px;margin:0 0 8px;font-weight:700">` +
+        `⚠ Data may be STALE — last scan ${res.scan.data_asof}, expected ${res.scan.expected_asof}. ` +
+        `If today wasn't a trading holiday, press Refresh (and tell Claude if it happens again).</div>`
+      : "";
+    $("meta").innerHTML = staleTag +
+      `Data as of ${res.scan.data_asof} · scanned ${res.scan.scanned_ok} of ` +
       `${res.scan.universe_size} symbols · <b>${todays}</b> to act on today · ` +
       `<a href="/active?market=${K.MARKET}">${nAct} active trades →</a>${liveTag}`;
     const sectors = [...new Set(trades.filter(t => t.sig !== "Active").map(t => t.sector).filter(Boolean))].sort();

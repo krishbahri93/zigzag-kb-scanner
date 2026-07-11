@@ -206,6 +206,21 @@ def _stamp_confirmed(market, scanner, rows):
         pass
 
 
+def _expected_asof(market):
+    """The trading date the newest confirmed daily bar SHOULD carry: today once the session has
+    closed (and the close-run had time to land), else the previous weekday. Exchange holidays are
+    deliberately not modelled — the dashboard's stale banner copy allows for them."""
+    tz = "Asia/Kolkata" if market == "india" else "America/New_York"
+    now = pd.Timestamp.now(tz=tz)
+    d = now.date()
+    close_hour = 16 if market == "india" else 17     # NSE closes 15:30 IST, US 16:00 ET
+    if now.hour < close_hour:                        # today's confirmed bar can't exist yet
+        d -= dt.timedelta(days=1)
+    while d.weekday() >= 5:                          # roll back over Sat/Sun
+        d -= dt.timedelta(days=1)
+    return str(d)
+
+
 def scan_market(market, scanner="nsv2", live=False):
     """Run a scanner over a market's cached universe → the flat scan dict (same shape scan.py wrote).
     Reuses the registry scanner's scan_symbol + min_bars + default_params, so a new scanner works
@@ -273,6 +288,7 @@ def scan_market(market, scanner="nsv2", live=False):
         "live_partials": live_partials,
         "generated_for_date": str(pd.Timestamp.now(tz="America/New_York").date()),
         "data_asof": max(asof_dates) if asof_dates else None,
+        "expected_asof": _expected_asof(market),     # dashboard stale-banner reference date
         "params": {k: sc.default_params[k] for k in _SCAN_PARAM_KEYS if k in sc.default_params},
         "universe_size": len(syms),
         "scanned_ok": scanned,
