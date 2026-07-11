@@ -35,6 +35,14 @@ def test_scan_symbol_expired_when_price_past_peak():
     assert r is not None and r["expired"] is True
 
 
+def test_scan_symbol_tp_carries_holding_period():
+    r = nsv2_scanner.scan_symbol("SYN", _df(rally_to=90))   # through the entry AND the target
+    s = r["swings"][0]
+    assert s["state"] == "TP" and s["tp_date"]
+    assert s["entry_date"] and s["held_bars"] and s["held_bars"] >= 1
+    assert r["expired"] is False                            # 90 is still under the ~100 peak
+
+
 def test_scan_symbol_none_without_setup():
     px = [100 + (i % 3) for i in range(60)]                 # flat: no qualifying decline
     idx = pd.date_range("2024-01-01", periods=len(px), freq="D", tz="UTC")

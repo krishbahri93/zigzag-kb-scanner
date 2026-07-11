@@ -77,6 +77,18 @@ def scan_symbol(sym, df, params=None):
         entry_date = str(df.index[last - bars_in + 1].date()) if (sti == 2 and bars_in) else None
         # a TP'd trade is terminal: the start of its state-3 run is the day the target was hit
         tp_date = str(df.index[last - bars_in + 1].date()) if (sti == 3 and bars_in) else None
+        # holding period: for an OPEN trade, bars since entry; for a COMPLETED (TP) trade, the
+        # length of the state-2 run that preceded the TP run (which also recovers its entry
+        # date). Feeds the Target Hits tab's "Avg holding" metric.
+        held_bars = bars_in if sti == 2 else None
+        if sti == 3 and bars_in:
+            j = last - bars_in                    # last bar of the run BEFORE the TP run
+            n2 = 0
+            while j - n2 >= 0 and _sti_at(j - n2) == 2:
+                n2 += 1
+            if n2:
+                held_bars = n2
+                entry_date = str(df.index[j - n2 + 1].date())
         # most recent STOP-OUT event: a 2 -> 1 transition in the state history (the SL bar itself
         # records state 1, since SL re-arms the trade). Bounded walk: exits older than ~90 bars
         # are ancient history for the dashboard.
@@ -97,6 +109,7 @@ def scan_symbol(sym, df, params=None):
             "A": _f(a),
             "state": {1: "wait", 2: "IN", 3: "TP", 4: "missed"}.get(sti, "-"),
             "bars_in_state": bars_in,
+            "held_bars": held_bars,
             "entry_date": entry_date,
             "tp_date": tp_date,
             "last_sl_date": last_sl_date,
