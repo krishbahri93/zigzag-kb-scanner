@@ -109,7 +109,12 @@ def main():
     order = ["DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN", "DHAN_PIN", "DHAN_TOTP_SECRET"]
     lines = [f"{k}={creds[k]}" for k in order if k in creds]
     lines += [f"{k}={v}" for k, v in creds.items() if k not in order]
-    open(CREDS_FILE, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    # Atomic write (temp -> fsync -> os.replace): the long-lived web process watches this file's
+    # mtime to adopt the rotated token (india._reload_token_if_changed), so the mtime must flip
+    # exactly ONCE on a complete file — a plain truncate+write leaves a window where that watcher
+    # could read a half-written creds file.
+    from pinescan import io_safe
+    io_safe.atomic_write_text(CREDS_FILE, "\n".join(lines) + "\n")
     print(f"  refreshed DHAN_ACCESS_TOKEN in {CREDS_FILE} (valid ~24h).")
 
 
