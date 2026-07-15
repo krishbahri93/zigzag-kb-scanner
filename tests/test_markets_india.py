@@ -8,6 +8,8 @@ relies on:
   - backfill is resumable — a symbol whose parquet already exists is skipped
     WITHOUT touching the network (the live smoke runs separately with real creds).
 """
+import os
+
 import pandas as pd
 
 from pinescan.markets import india
@@ -46,3 +48,41 @@ def test_backfill_skips_cached_without_network(tmp_path, monkeypatch):
 
     india.backfill(["FAKE"])                       # cached → skipped → no network, no raise
     assert (tmp_path / "FAKE.parquet").exists()    # left untouched
+
+
+def _write_creds(path, token):
+    path.write_text(f"DHAN_CLIENT_ID=cid\nDHAN_ACCESS_TOKEN={token}\n", encoding="utf-8")
+
+
+def test_reload_token_picks_up_a_rotated_token(tmp_path, monkeypatch):
+    """A long-lived process must adopt the daily-minted token: when .dhan_creds changes on disk,
+    the stale token in os.environ is overwritten and the cached client is dropped for a rebuild."""
+    creds = tmp_path / ".dhan_creds"
+    _write_creds(creds, "OLD_TOKEN")
+    monkeypatch.setattr(india, "_creds_file", lambda: str(creds))
+    monkeypatch.setattr(india, "_dhan", object())          # a live cached client
+    monkeypatch.setattr(india, "_creds_mtime", None)
+    monkeypatch.setenv("DHAN_ACCESS_TOKEN", "OLD_TOKEN")
+
+    # First look: file matches env → nothing to heal, cached client preserved.
+    india._reload_token_if_changed()
+    assert india._dhan is not None
+    assert os.environ["DHAN_ACCESS_TOKEN"] == "OLD_TOKEN"
+
+    # The 08:30 mint rewrites the file with a fresh token (bump mtime so the guard trips).
+    _write_creds(creds, "NEW_TOKEN")
+    st = os.stat(creds)
+    os.utime(creds, (st.st_mtime + 10, st.st_mtime + 10))
+
+    india._reload_token_if_changed()
+    assert os.environ["DHAN_ACCESS_TOKEN"] == "NEW_TOKEN"   # env now authoritative
+    assert india._dhan is None                             # cached client dropped → rebuild next call
+
+
+def test_reload_token_noop_without_creds_file(tmp_path, monkeypatch):
+    """No .dhan_creds anywhere → the heal is a silent no-op (backtests/tests run cache-only)."""
+    monkeypatch.setattr(india, "_creds_file", lambda: None)
+    sentinel = object()
+    monkeypatch.setattr(india, "_dhan", sentinel)
+    india._reload_token_if_changed()
+    assert india._dhan is sentinel

@@ -78,9 +78,52 @@ def load_total_market():
 # Dhan client cache (created once per session)
 _dhan = None
 _secid = {}
+_creds_mtime = None          # mtime of the .dhan_creds we built _dhan from (token-rotation guard)
 
 # The two creds Dhan needs: client id + a daily-refreshed access token.
 _DHAN_CRED_KEYS = ("DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN")
+
+
+def _creds_file():
+    """Path of the .dhan_creds actually in use (cwd first, then ~), or None if neither exists."""
+    for p in (".dhan_creds", os.path.expanduser("~/.dhan_creds")):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _reload_token_if_changed():
+    """Pick up a freshly-minted token in a LONG-LIVED process (the web app).
+
+    Dhan tokens expire every 24h; the 08:30 mint rewrites .dhan_creds in a SEPARATE process, and
+    ensure_dhan_creds() uses setdefault (env wins), so a long-running process would otherwise keep
+    the stale token in os.environ + the cached _dhan client forever — a browser Refresh would then
+    fetch nothing and silently serve stale data. Here we watch the file's mtime: when it changes,
+    read the token straight from disk, overwrite os.environ, and drop the cached client so the next
+    _dhan_client() rebuilds with the fresh token. Fresh oneshot jobs (the 15:55 close run) never hit
+    this — they start with a clean env — so this only heals the long-lived path."""
+    global _dhan, _creds_mtime
+    p = _creds_file()
+    if not p:
+        return
+    try:
+        m = os.stat(p).st_mtime
+    except OSError:
+        return
+    if _creds_mtime is not None and m <= _creds_mtime:
+        return                                   # unchanged since we last built the client
+    tok = None
+    try:
+        for line in open(p, encoding="utf-8"):
+            line = line.strip()
+            if line.startswith("DHAN_ACCESS_TOKEN="):
+                tok = line.split("=", 1)[1].strip()
+    except OSError:
+        return
+    if tok and tok != os.environ.get("DHAN_ACCESS_TOKEN"):
+        os.environ["DHAN_ACCESS_TOKEN"] = tok    # authoritative: the file's token wins after a mint
+        _dhan = None                             # force a rebuild with the fresh token
+    _creds_mtime = m
 
 
 def ensure_dhan_creds(path=None):
@@ -116,6 +159,7 @@ def _dhan_client():
     wiring creds itself; raises KeyError if no creds are available anywhere (env or file).
     """
     global _dhan, _secid
+    _reload_token_if_changed()                  # heal a stale token before reusing the cached client
     if _dhan is None:
         ensure_dhan_creds()                     # pull creds from .dhan_creds if not already in env
         cid = os.environ["DHAN_CLIENT_ID"]
@@ -126,7 +170,8 @@ def _dhan_client():
         except Exception:
             from dhanhq import dhanhq
             _dhan = dhanhq(cid, tok)
-        df = pd.read_csv(DHAN_SCRIP_URL, low_memory=False)
+    if not _secid:                              # the scrip master rarely changes — don't re-download
+        df = pd.read_csv(DHAN_SCRIP_URL, low_memory=False)  # it on a mere token rotation
         if "SEM_EXM_EXCH_ID" in df.columns:
             df = df[df["SEM_EXM_EXCH_ID"].astype(str).str.upper() == "NSE"]
         if "SEM_SERIES" in df.columns:
