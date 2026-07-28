@@ -93,6 +93,32 @@ def main():
                 print(f"  WARNING: {r['msg']} — using the existing cache.")
         except Exception as e:
             print(f"  WARNING: data refresh failed ({str(e)[:140]}); using the existing cache.")
+
+        # PUBLISH-WAIT (India): since ~2026-07-24 Dhan can publish the day's EOD bars well
+        # after our 15:55 start. If the cache is still behind the expected trading date,
+        # retry the refresh every 12 minutes until it lands or ~17:30 IST — each round is
+        # loud in the job log, so a genuinely missing day (holiday) is visible, bounded,
+        # and never mistaken for success. The morning tick's self-heal is the safety net.
+        if market == "india":
+            import time
+            deadline = dt.datetime.now().replace(hour=17, minute=30, second=0, microsecond=0)
+            for attempt in range(1, 6):
+                st = service.data_status(market)
+                exp = service._expected_asof(market)
+                if not service._is_behind(st["last_date"], exp):
+                    break
+                if dt.datetime.now() >= deadline:
+                    print(f"  publish-wait: giving up at {dt.datetime.now():%H:%M} — cache "
+                          f"{st['last_date']} still behind expected {exp} (holiday, or Dhan "
+                          f"very late; the morning self-heal will retry).")
+                    break
+                print(f"  publish-wait #{attempt}: cache {st['last_date']} < expected {exp} — "
+                      f"Dhan hasn't published today's bars yet; retrying in 12 min …")
+                time.sleep(720)
+                try:
+                    service.refresh_market(market)
+                except Exception as e:
+                    print(f"  publish-wait: retry failed ({str(e)[:140]})")
     else:
         print("  (skipping data refresh — weekend or --no-refresh)")
 

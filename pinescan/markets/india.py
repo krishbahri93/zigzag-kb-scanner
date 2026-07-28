@@ -184,31 +184,67 @@ def _dhan_client():
     return _dhan
 
 
+# Why the last fetch returned no frame — set by _dhan_daily_ohlcv/_fetch_dhan_daily on EVERY
+# call so refresh_recent can tell a rate-limited symbol from a genuinely empty one (Dhan
+# started enforcing DH-904 rate limits ~2026-07-24; before this, both read as "no data").
+#   None = data returned · "rate_limited" (DH-904 survived retries) · "empty" (success, no
+#   rows) · "unmapped" (symbol absent from the scrip master) · "error:<code>" (other failure)
+LAST_FETCH_ERROR = None
+
+# Base spacing between history calls. 0.15s (~6.7 req/s) worked until Dhan's 2026-07-24
+# enforcement change began rejecting the tail of every 752-symbol sweep; 0.35s stays under
+# the observed limit with headroom, and the DH-904 backoff below catches transient buckets.
+_THROTTLE_S = 0.35
+
+
+def _classify_remarks(r):
+    """Map a Dhan response dict to LAST_FETCH_ERROR vocabulary (pure; unit-tested).
+    Returns None when the response carries data, else the failure class."""
+    d = r.get("data") if isinstance(r, dict) else None
+    if d and "close" in d and d["close"]:
+        return None
+    rem = r.get("remarks") if isinstance(r, dict) else None
+    code = (rem or {}).get("error_code") if isinstance(rem, dict) else None
+    if code == "DH-904":
+        return "rate_limited"
+    if code:
+        return f"error:{code}"
+    return "empty"
+
+
 def _dhan_daily_ohlcv(security_id, exchange_segment, instrument_type, days):
     """Core Dhan daily-history fetch — the single place that calls Dhan's daily endpoint.
 
     Equities and indices differ ONLY in their (exchange_segment, instrument_type) pair and id,
     so both public fetchers below funnel through here instead of repeating the request + parse.
     Pulls `days` of history and returns an OHLCV DataFrame indexed by Asia/Kolkata datetime
-    (Volume is 0 when Dhan reports none, e.g. for indices), or None if Dhan returns no data.
-    Throttles 0.15s per call so big universe scans stay polite.
+    (Volume is 0 when Dhan reports none, e.g. for indices), or None if Dhan returns no data —
+    in which case module-global LAST_FETCH_ERROR says WHY (see its comment above).
 
-    To add another Dhan instrument (e.g. a sector index), add a thin wrapper that calls this
-    with the right segment/instrument — don't re-inline the request.
+    Rate limits: throttles _THROTTLE_S per call, and a DH-904 rejection is retried twice with
+    growing pauses (2s, 8s) before giving up — Dhan's limiter refills within seconds, so the
+    sweep's tail survives instead of silently losing ~125 symbols (the 2026-07-28 diagnosis).
     """
     import time
+    global LAST_FETCH_ERROR
     dh = _dhan_client()
-    time.sleep(0.15)                                    # gentle throttle for big scans
     to_d = dt.date.today()
     from_d = to_d - dt.timedelta(days=days)
-    r = dh.historical_daily_data(
-        security_id=str(security_id), exchange_segment=exchange_segment,
-        instrument_type=instrument_type, expiry_code=0,
-        from_date=str(from_d), to_date=str(to_d),
-    )
-    d = r.get("data") if isinstance(r, dict) else None
-    if not d or "close" not in d:
+    r, why = None, "empty"
+    for pause in (_THROTTLE_S, 2.0, 8.0):       # first try + two rate-limit retries
+        time.sleep(pause)
+        r = dh.historical_daily_data(
+            security_id=str(security_id), exchange_segment=exchange_segment,
+            instrument_type=instrument_type, expiry_code=0,
+            from_date=str(from_d), to_date=str(to_d),
+        )
+        why = _classify_remarks(r)
+        if why != "rate_limited":
+            break
+    LAST_FETCH_ERROR = why
+    if why is not None:
         return None
+    d = r["data"]
     out = pd.DataFrame({
         "Open": d["open"], "High": d["high"], "Low": d["low"],
         "Close": d["close"], "Volume": d.get("volume", [0] * len(d["close"])),
@@ -226,10 +262,13 @@ def _dhan_daily_ohlcv(security_id, exchange_segment, instrument_type, days):
 def _fetch_dhan_daily(symbol, days=1100):
     """Dhan daily OHLCV for one NSE equity (NSE_EQ / EQUITY). Resolves the trading symbol to its
     Dhan security id via _secid, then delegates the actual fetch to _dhan_daily_ohlcv. Returns a
-    DataFrame indexed by Asia/Kolkata datetime, or None if the symbol isn't in Dhan's equity map."""
+    DataFrame indexed by Asia/Kolkata datetime, or None if the symbol isn't in Dhan's equity map
+    (LAST_FETCH_ERROR = "unmapped") or Dhan returned nothing (see LAST_FETCH_ERROR)."""
+    global LAST_FETCH_ERROR
     _dhan_client()                          # ensure the client + _secid map are loaded BEFORE the lookup
     sid = _secid.get(symbol.upper())
     if not sid:
+        LAST_FETCH_ERROR = "unmapped"
         return None
     return _dhan_daily_ohlcv(sid, "NSE_EQ", "EQUITY", days)
 
@@ -437,38 +476,67 @@ def refresh_recent(symbols, days=15, progress_every=50):
     For each symbol: fetch the last `days` of daily history via _fetch_dhan_daily, concat with the
     existing parquet, dedupe by date (keep last, so a restated bar is corrected) + sort, and rewrite.
     This is the daily-refresh path the forward-tester uses to pull today's FINAL daily bar. One Dhan
-    call per symbol (throttled inside _fetch_dhan_daily); symbols Dhan returns nothing for are left
-    untouched. Mirrors the per-symbol cache layout backfill/load_cache use.
+    call per symbol (throttled + DH-904-retried inside _dhan_daily_ohlcv); symbols Dhan returns
+    nothing for are left untouched. Mirrors the per-symbol cache layout backfill/load_cache use.
+
+    Failures are CLASSIFIED (via LAST_FETCH_ERROR), not lumped: rate-limited symbols get one
+    extra sweep at the end (the limiter has refilled by then), and the summary prints distinct
+    counts so the job log can tell "Dhan throttled us" from "Dhan has no bar yet" — the
+    2026-07-24..28 incident hid as ~125 'no data' symbols for four days because it couldn't.
+
+    Returns a summary dict: {total, updated, latest_bar, on_latest, rate_limited, unmapped,
+    empty} — callers use latest_bar/on_latest to decide whether today's bar has landed
+    (the close-run publish-wait and the morning self-heal, see service/forward_run).
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     total = len(symbols)
-    done = updated = 0
-    failed = []
     print(f"  refresh_recent: {total} symbols, last ~{days}d each …")
-    for sym in symbols:
-        done += 1
+
+    updated, last_bar = {}, {}                   # sym -> True / sym -> last cached date
+    failed = {"rate_limited": [], "unmapped": [], "empty": []}
+
+    def _one(sym):
         recent = _fetch_dhan_daily(sym, days=days)
         if recent is None or len(recent) == 0:
-            # collected + named in the summary line, so a held symbol whose bar didn't come
-            # through (the ATUL case, 2026-07-09/10) is visible in the job log
-            failed.append(sym)
+            failed[LAST_FETCH_ERROR if LAST_FETCH_ERROR in failed else "empty"].append(sym)
+            return
+        fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
+        old = io_safe.read_parquet_safe(fp)          # None if absent OR corrupt -> treat as fresh
+        if old is not None:
+            merged = pd.concat([old, recent])
+            merged = merged[~merged.index.duplicated(keep="last")].sort_index()
         else:
-            fp = os.path.join(CACHE_DIR, f"{sym}.parquet")
-            old = io_safe.read_parquet_safe(fp)          # None if absent OR corrupt -> treat as fresh
-            if old is not None:
-                merged = pd.concat([old, recent])
-                merged = merged[~merged.index.duplicated(keep="last")].sort_index()
-            else:
-                merged = recent
-            io_safe.atomic_to_parquet(merged, fp)        # crash-safe
-            updated += 1
+            merged = recent
+        io_safe.atomic_to_parquet(merged, fp)        # crash-safe
+        updated[sym] = True
+        last_bar[sym] = str(merged.index.max().date())
+
+    for done, sym in enumerate(symbols, 1):
+        _one(sym)
         if done % progress_every == 0 or done == total:
-            print(f"    refresh {done}/{total} ({updated} updated) … {sym}")
-    print(f"  refresh_recent complete: {updated}/{total} symbols updated")
-    if failed:
-        head = ", ".join(failed[:10])
-        more = f" … +{len(failed) - 10} more" if len(failed) > 10 else ""
-        print(f"  refresh_recent: {len(failed)} symbols returned no data: {head}{more}")
+            print(f"    refresh {done}/{total} ({len(updated)} updated) … {sym}")
+
+    # Second chance for the rate-limited tail: by the time the sweep ends the limiter has
+    # refilled, so one more paced pass usually clears every straggler.
+    retry = list(failed["rate_limited"])
+    if retry:
+        print(f"  refresh_recent: retrying {len(retry)} rate-limited symbols …")
+        failed["rate_limited"] = []
+        for sym in retry:
+            _one(sym)
+
+    latest = max(last_bar.values()) if last_bar else None
+    on_latest = sum(1 for v in last_bar.values() if v == latest) if latest else 0
+    print(f"  refresh_recent complete: {len(updated)}/{total} symbols updated"
+          + (f", newest bar {latest} on {on_latest} of them" if latest else ""))
+    for kind, syms in failed.items():
+        if syms:
+            head = ", ".join(syms[:10])
+            more = f" … +{len(syms) - 10} more" if len(syms) > 10 else ""
+            print(f"  refresh_recent: {len(syms)} {kind.replace('_', '-')}: {head}{more}")
+    return {"total": total, "updated": len(updated), "latest_bar": latest,
+            "on_latest": on_latest, "rate_limited": len(failed["rate_limited"]),
+            "unmapped": len(failed["unmapped"]), "empty": len(failed["empty"])}
 
 
 def load_cache(symbols):

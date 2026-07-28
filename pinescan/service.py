@@ -221,6 +221,53 @@ def _expected_asof(market):
     return str(d)
 
 
+def _is_behind(last_date, expected):
+    """True when the cache's newest official bar predates the expected trading date.
+    Pure (ISO strings compare lexicographically) so the publish-wait and morning
+    self-heal decisions are unit-testable. None on either side reads as NOT behind —
+    an empty cache is first-install territory, not a staleness signal."""
+    return bool(expected) and bool(last_date) and last_date < expected
+
+
+# Once-a-day guard for the morning self-heal (see _self_heal_official_bars).
+_SELFHEAL_STATE = "data/status/selfheal.json"
+
+
+def _self_heal_official_bars(market):
+    """Top up missed OFFICIAL daily bars before a live tick scans (India only).
+
+    Since ~2026-07-24 Dhan publishes EOD bars late: the 15:55 close run can miss the whole
+    day, leaving the dashboard on yesterday's confirmed data until a human pressed Refresh.
+    This runs at most twice per day (second try only after 11:00, when late bars have
+    usually landed) and only while the cache is actually behind the expected trading day —
+    a market holiday therefore costs two cheap sweeps, never a loop. job_wrapper's flock
+    keeps overlapping ticks out for the ~6 minutes a top-up takes."""
+    if market != "india":
+        return
+    st = data_status(market)
+    exp = _expected_asof(market)
+    if not _is_behind(st["last_date"], exp):
+        return
+    today = str(dt.date.today())
+    try:
+        s = json.load(open(_SELFHEAL_STATE))
+    except Exception:
+        s = {}
+    if s.get("date") != today:
+        s = {"date": today, "attempts": 0}
+    if s["attempts"] >= 2 or (s["attempts"] == 1 and dt.datetime.now().hour < 11):
+        return
+    s["attempts"] += 1
+    os.makedirs(os.path.dirname(_SELFHEAL_STATE), exist_ok=True)
+    io_safe.atomic_write_text(_SELFHEAL_STATE, json.dumps(s))
+    print(f"  self-heal: official cache {st['last_date']} < expected {exp} — topping up …")
+    syms = [os.path.splitext(os.path.basename(f))[0]
+            for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
+    summ = india.refresh_recent(syms, days=15)
+    print(f"  self-heal: {summ['updated']}/{summ['total']} updated, "
+          f"newest bar {summ['latest_bar']} on {summ['on_latest']} symbols")
+
+
 def scan_market(market, scanner="nsv2", live=False):
     """Run a scanner over a market's cached universe → the flat scan dict (same shape scan.py wrote).
     Reuses the registry scanner's scan_symbol + min_bars + default_params, so a new scanner works
@@ -286,7 +333,8 @@ def scan_market(market, scanner="nsv2", live=False):
         "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "live_bar": bool(live_partials),           # last bar is today's forming bar, not a close
         "live_partials": live_partials,
-        "generated_for_date": str(pd.Timestamp.now(tz="America/New_York").date()),
+        "generated_for_date": str(pd.Timestamp.now(          # market-LOCAL calendar date
+            tz="Asia/Kolkata" if market == "india" else "America/New_York").date()),
         "data_asof": max(asof_dates) if asof_dates else None,
         "expected_asof": _expected_asof(market),     # dashboard stale-banner reference date
         "params": {k: sc.default_params[k] for k in _SCAN_PARAM_KEYS if k in sc.default_params},
@@ -456,7 +504,9 @@ def refresh_market(market, on_progress=None):
             india.backfill(syms)
         else:
             _say("Refreshing India (Dhan) …")
-            india.refresh_recent(syms, days=max(15, gap))
+            summ = india.refresh_recent(syms, days=max(15, gap))
+            _say(f"Refreshed {summ['updated']}/{summ['total']} symbols — "
+                 f"newest bar {summ['latest_bar']}")
             # Top up NEW universe constituents (index additions / a widened universe): the
             # scan universe is the cache DIRECTORY, and refresh_recent only tops up files
             # that already exist — without this, a new symbol never enters the cache and
@@ -495,12 +545,18 @@ def refresh_market(market, on_progress=None):
 def intraday_tick(market="india", scanner="nsv2"):
     """One market-hours tick (the 15-min timer's job): scan the cached universe with today's
     LIVE partial bar merged in memory, and cache the result for the dashboard. Deliberately
-    light: no data-cache writes, no forward test (both belong to the 15:55 close run). Outside
-    market hours every partial fetch returns None, so a tick degrades to a plain re-scan."""
+    light: no data-cache writes, no forward test (both belong to the 15:55 close run) — with
+    ONE exception: the late-EOD self-heal below may top up official bars the close run missed.
+    Outside market hours every partial fetch returns None, so a tick degrades to a plain re-scan."""
     if market != "india":
         return {"ok": False, "msg": "intraday ticks are India-only for now"}
     if not india.ensure_dhan_creds():
         return {"ok": False, "msg": "No Dhan creds set — add them on Settings."}
+    # Best-effort self-heal — a tick must still scan even if the top-up fails.
+    try:
+        _self_heal_official_bars(market)
+    except Exception:
+        traceback.print_exc()
     scan = scan_market(market, scanner, live=True)
     os.makedirs("data/results", exist_ok=True)
     io_safe.atomic_write_text(_scan_path(market, scanner), json.dumps(scan, allow_nan=False))
