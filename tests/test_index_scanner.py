@@ -39,6 +39,69 @@ def test_us_sector_etf_universe_shape():
     assert {"XLK", "XLF", "XLE", "SPY"} <= set(us.SECTOR_ETFS)
 
 
+def test_every_sectoral_index_has_members_source():
+    # Every India SECTORAL index maps to universe sector labels, except the two
+    # ownership/thematic ones with no sector equivalent (PSE, MNC — documented).
+    sectoral = {n for n, m in india.SECTORAL_INDICES.items() if m["kind"] == "Sectoral"}
+    unmapped = sectoral - set(india.INDEX_SECTOR_MAP)
+    assert unmapped <= {"NIFTY PSE", "NIFTY MNC"}, unmapped
+    # every US sectoral ETF carries a representative-holdings list
+    us_sectoral = {s for s, m in us.SECTOR_ETFS.items() if m["kind"] == "Sectoral"}
+    assert us_sectoral <= set(us.REP_HOLDINGS)
+
+
+# ---------------------------------------------------------------------------
+# constituents drill-down — signal priority + the members join
+# ---------------------------------------------------------------------------
+def test_best_sig_priority():
+    row = {"swings": [
+        {"state": "wait", "in_band": False, "approaching": True},
+        {"state": "IN", "bars_in_state": 5},
+        {"state": "wait", "in_band": True},
+    ]}
+    assert service._best_sig(row) == "In Zone"          # beats Active + Approaching
+    row["swings"].append({"state": "IN", "bars_in_state": 1})
+    assert service._best_sig(row) == "Triggered"        # beats everything
+    assert service._best_sig({"swings": []}) is None
+
+
+def test_attach_members_india_setups_first(monkeypatch):
+    monkeypatch.setattr(service.india, "get_universe",
+                        lambda: (["TCS", "INFY", "WIPRO", "SBIN"],
+                                 {"TCS": "Information Technology", "INFY": "Information Technology",
+                                  "WIPRO": "Information Technology", "SBIN": "Financial Services"}))
+    monkeypatch.setattr(service, "read_scan", lambda market, scanner="nsv2": {"rows": [
+        {"sym": "TCS", "ltp": 4000.0, "day_pct": 1.2,
+         "swings": [{"state": "wait", "in_band": True}]}]})
+
+    q = pd.DataFrame({"Close": [100.0, 102.0]},
+                     index=pd.DatetimeIndex(["2026-07-24", "2026-07-27"]))
+    monkeypatch.setattr(service.io_safe, "read_parquet_safe", lambda fp: q)
+
+    rows = [{"sym": "NIFTY IT"}, {"sym": "NIFTY 50"}]
+    service._attach_index_members("india", rows)
+
+    it = rows[0]
+    assert [m["sym"] for m in it["members"]][0] == "TCS"          # setup first
+    assert it["members"][0]["sig"] == "In Zone"
+    assert len(it["members"]) == 3                                # IT stocks only
+    assert it["members_note"].startswith("1 of 3")
+    assert it["members"][1]["day_pct"] == 2.0                     # cache-tail quote
+    assert rows[1]["members"] is None                             # broad: no drill-down
+
+
+def test_attach_members_us_rep_holdings(monkeypatch):
+    monkeypatch.setattr(service, "read_scan", lambda market, scanner="nsv2": {"rows": [
+        {"sym": "NVDA", "ltp": 190.0, "day_pct": 2.5,
+         "swings": [{"state": "IN", "bars_in_state": 3}]}]})
+    rows = [{"sym": "SMH"}, {"sym": "SPY"}]
+    service._attach_index_members("us", rows)
+    smh = rows[0]
+    assert smh["members"][0]["sym"] == "NVDA" and smh["members"][0]["sig"] == "Active"
+    assert len(smh["members"]) == len(us.REP_HOLDINGS["SMH"])
+    assert rows[1]["members"] is None                             # broad ETF: none
+
+
 # ---------------------------------------------------------------------------
 # scan_indices — vol-filter policy, payload, alerts
 # ---------------------------------------------------------------------------

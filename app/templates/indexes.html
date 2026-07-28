@@ -1,5 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  /* constituents drill-down — inherits the app's tokens so it blends on both themes */
+  .memhead { font-size:11px; letter-spacing:.5px; text-transform:uppercase;
+             color:var(--muted); margin:10px 0 6px; }
+  .memwrap { display:flex; flex-wrap:wrap; gap:6px; }
+  .mem { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 9px;
+         border:1px solid var(--border); border-radius:8px; background:var(--card);
+         text-decoration:none; }
+  .mem b { font-weight:700; }
+  .mem:hover { border-color:var(--accent); }
+  .mem.hassig { border-color:var(--accent); background:var(--accent-soft); }
+  .mem .badge { min-width:auto; padding:2px 7px; font-size:10px; }
+</style>
 <div class="meta" id="meta">Loading index scan …</div>
 
 <div class="cards" id="cards"></div>
@@ -163,7 +176,7 @@ ETFs are directly tradeable; index data itself needs a paid Polygon plan, so ETF
           <span>From entry <b>${t.dist_pct == null ? "—" : K.nf(t.dist_pct) + "%"}</b></span>
           <span>Depth <b>${K.nf(t.depth_pct, 1)}%</b></span>
           <span>${t.sector || ""}</span>
-          <span class="muted">${K.rel(t.confirmed_at)}</span></div>` : ""}
+          <span class="muted">${K.rel(t.confirmed_at)}</span></div>${memberPanel(t)}` : ""}
       </div>`;
     }).join("") || `<div class="muted" style="padding:20px;text-align:center">No index setups match the current filters.</div>`;
     document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
@@ -177,6 +190,23 @@ ETFs are directly tradeable; index data itself needs a paid Polygon plan, so ETF
     window._idxsyms = [...new Set(rs.map(t => t.tv_sym || t.sym))];
   }
 
+  // The constituents drill-down: the index's stocks with OUR scanner's live state on
+  // each — setups first, so a firing sector reads as a ready shortlist of leaders.
+  function memberPanel(t) {
+    if (!t.members || !t.members.length) return "";
+    const chips = t.members.map(m => {
+      const cls = m.sig === "Triggered" ? "b-trig" : m.sig === "In Zone" ? "b-zone"
+               : m.sig === "Active" ? "b-act" : m.sig === "Approaching" ? "b-appr" : "";
+      const dp = (m.day_pct === null || m.day_pct === undefined) ? "" :
+          `<span class="${m.day_pct >= 0 ? "pos" : "neg"}">${m.day_pct > 0 ? "+" : ""}${K.nf(m.day_pct, 1)}%</span>`;
+      return `<a class="mem ${m.sig ? "hassig" : ""}" target="_blank" rel="noopener" href="${K.tv(m.sym)}">
+        <b>${m.sym}</b>${m.ltp == null ? "" : " " + K.nf(m.ltp)} ${dp}
+        ${m.sig ? `<span class="badge ${cls}">${m.sig}</span>` : ""}</a>`;
+    }).join("");
+    return `<div class="memhead">Constituent stocks · ${t.members_note || ""}</div>
+      <div class="memwrap">${chips}</div>`;
+  }
+
   function detailRow(t) {
     return `<tr class="detail"><td colspan="11">
       <div class="swings">
@@ -184,7 +214,7 @@ ETFs are directly tradeable; index data itself needs a paid Polygon plan, so ETF
           Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
         <div class="swingbox">Category: <b>${t.sector || "—"}</b><br>
           B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
-      </div></td></tr>`;
+      </div>${memberPanel(t)}</td></tr>`;
   }
 
   $("fSector").onchange = e => { F.sector = e.target.value; render(); };

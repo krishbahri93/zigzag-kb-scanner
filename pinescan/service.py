@@ -351,6 +351,77 @@ def _scan_path(market, scanner):
     return f"data/results/{scanner}_{market}.json"
 
 
+def _best_sig(row):
+    """One display state per stock, best-first, mirroring the dashboard's flatten():
+    Triggered > In Zone > Active > Approaching > None."""
+    best, rank = None, 99
+    order = {"Triggered": 0, "In Zone": 1, "Active": 2, "Approaching": 3}
+    for s in row.get("swings", []):
+        sig = None
+        if s.get("state") == "IN":
+            sig = "Triggered" if s.get("bars_in_state", 99) <= 1 else "Active"
+        elif s.get("state") == "wait":
+            sig = "In Zone" if s.get("in_band") else ("Approaching" if s.get("approaching") else None)
+        if sig is not None and order[sig] < rank:
+            best, rank = sig, order[sig]
+    return best
+
+
+def _attach_index_members(market, rows):
+    """Attach r["members"] to every index row that has a membership source: the stocks a
+    trader would drill into when that index fires — OUR universe's members of the sector
+    (India) or the ETF's representative holdings (US), each tagged with the stock
+    scanner's CURRENT signal, price and day%. Sorted setups-first, then day% — the
+    "leading stocks" read. Never raises: the Index tab must render without members."""
+    try:
+        stock_scan = read_scan(market, "nsv2") or {}
+        srow = {r["sym"]: r for r in stock_scan.get("rows", [])}
+        if market == "india":
+            syms, sectors = india.get_universe()
+            by_sector = {}
+            for s in syms:
+                by_sector.setdefault(sectors.get(s, ""), []).append(s)
+            # quotes for members without setups come off the cache tail (2 closes)
+            def quote(sym):
+                df = io_safe.read_parquet_safe(os.path.join(india.CACHE_DIR, f"{sym}.parquet"))
+                if df is None or len(df) < 2:
+                    return None, None
+                c = df["Close"]
+                dp = float(c.iloc[-1] / c.iloc[-2] - 1.0) * 100
+                return float(c.iloc[-1]), (round(dp, 2) if math.isfinite(dp) else None)
+            members_of = lambda name: sorted({m for lab in india.INDEX_SECTOR_MAP.get(name, [])
+                                              for m in by_sector.get(lab, [])})
+        else:
+            def quote(sym):
+                r = srow.get(sym)
+                return (r.get("ltp"), r.get("day_pct")) if r else (None, None)
+            members_of = lambda name: us.REP_HOLDINGS.get(name, [])
+
+        order = {"Triggered": 0, "In Zone": 1, "Active": 2, "Approaching": 3, None: 9}
+        for r in rows:
+            mem = members_of(r["sym"])
+            if not mem:
+                r["members"] = None                       # thematic/broad: no drill-down
+                continue
+            out = []
+            for sym in mem:
+                sig = _best_sig(srow[sym]) if sym in srow else None
+                ltp, dp = (srow[sym].get("ltp"), srow[sym].get("day_pct")) \
+                    if sym in srow else quote(sym)
+                out.append({"sym": sym, "ltp": ltp, "day_pct": dp, "sig": sig})
+            out.sort(key=lambda m: (order.get(m["sig"], 9),
+                                    -(m["day_pct"] if m["day_pct"] is not None else -1e9)))
+            n_sig = sum(1 for m in out if m["sig"])
+            r["members_note"] = f"{n_sig} of {len(out)} with live setups"
+            r["members"] = out[:60]                       # cap the widest sectors
+            if len(out) > 60:
+                r["members_note"] += f" · showing top 60 of {len(out)}"
+    except Exception:
+        traceback.print_exc()
+        for r in rows:
+            r.setdefault("members", None)
+
+
 def scan_indices(market, refresh=False):
     """Index Scanner: run the SAME nsv2 engine over the market's index universe — India's
     NSE/BSE sectoral indices (Dhan IDX_I) or the US sector ETFs (Polygon) — and persist
@@ -395,6 +466,7 @@ def scan_indices(market, refresh=False):
     actionable = [r for r in rows if (r["in_band"] or r["approaching"] or r["fired_entry"])
                   and not r["expired"]]
     _stamp_confirmed(market, "nsv2idx", rows)
+    _attach_index_members(market, rows)       # the constituents drill-down (never raises)
     payload = _json_safe({
         "engine": f"{sc.name} on indices ({sc.display}, volume filter "
                   f"{'bypassed' if market == 'india' else 'active'})",

@@ -81,6 +81,40 @@ SECTORAL_INDICES = {
     "BANKEX":            {"sid": "69",  "kind": "Sectoral", "tv": "BSE:BANKEX",      "full": "S&P BSE Bankex"},
 }
 
+# Index -> our universe's NSE macro-sector labels (the get_universe() sector column), for
+# the Index Scanner's constituents drill-down. This is deliberately OUR-UNIVERSE membership,
+# not the official index roster: clicking "NIFTY IT" answers "which IT stocks can I act on,
+# and which have live setups?" — the question Krish actually asks when a sector fires.
+# Thematic/ownership indices (PSE, MNC) and broad benchmarks have no sector equivalent and
+# carry no mapping (the UI shows a note instead). Bank-family indices all map to Financial
+# Services — our labels don't split banks from NBFCs; the setups-first sort keeps it useful.
+INDEX_SECTOR_MAP = {
+    "NIFTY BANK":        ["Financial Services"],
+    "NIFTY FIN SERVICE": ["Financial Services"],
+    "NIFTY PVT BANK":    ["Financial Services"],
+    "NIFTY PSU BANK":    ["Financial Services"],
+    "BANKEX":            ["Financial Services"],
+    "NIFTY IT":          ["Information Technology"],
+    "NIFTY AUTO":        ["Automobile and Auto Components"],
+    "NIFTY PHARMA":      ["Healthcare"],
+    "NIFTY HEALTHCARE":  ["Healthcare"],
+    "NIFTY FMCG":        ["Fast Moving Consumer Goods"],
+    "NIFTY METAL":       ["Metals & Mining"],
+    "NIFTY ENERGY":      ["Power", "Oil Gas & Consumable Fuels"],
+    "NIFTY OIL AND GAS": ["Oil Gas & Consumable Fuels"],
+    "NIFTY REALTY":      ["Realty"],
+    "NIFTY MEDIA":       ["Media Entertainment & Publication"],
+    "NIFTY INFRA":       ["Construction", "Construction Materials", "Power"],
+    "NIFTY SERV SECTOR": ["Services"],
+    "NIFTY COMMODITIES": ["Metals & Mining", "Chemicals", "Construction Materials",
+                          "Oil Gas & Consumable Fuels"],
+    "NIFTY CONSUMPTION": ["Consumer Services", "Fast Moving Consumer Goods",
+                          "Consumer Durables"],
+    "NIFTY CONSR DURBL": ["Consumer Durables"],
+    "NIFTY INDIA MFG":   ["Capital Goods", "Automobile and Auto Components",
+                          "Chemicals", "Textiles"],
+}
+
 INDEX_CACHE_DIR = "data/cache/india_idx"
 
 

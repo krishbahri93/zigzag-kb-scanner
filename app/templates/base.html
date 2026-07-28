@@ -54,6 +54,7 @@
             ltp: r.ltp, day_pct: r.day_pct,
             vol_x: r.vol_x, asof: r.asof, B: r.B, sig: sig,
             tv_sym: r.tv_sym || null,   // explicit TradingView code (Index Scanner rows)
+            members: r.members || null, members_note: r.members_note || "",  // constituents
           }));
         });
       });

@@ -63,6 +63,26 @@ SECTOR_ETFS = {
     "IWM":  {"kind": "Broad",    "full": "Russell 2000 (IWM)"},
 }
 
+# Representative top holdings per sector ETF, for the Index Scanner's constituents
+# drill-down. STATIC by design (free Polygon has no holdings endpoint): the megacap top
+# of a sector ETF changes slowly, and the panel is labelled "representative", not
+# official. Broad ETFs (SPY/QQQ/DIA/IWM) carry no list — hundreds of names tell nothing.
+REP_HOLDINGS = {
+    "XLK":  ["AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "ADBE", "CSCO", "ACN"],
+    "XLF":  ["BRK.B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS", "SPGI", "AXP"],
+    "XLE":  ["XOM", "CVX", "COP", "WMB", "EOG", "SLB", "MPC", "PSX", "OKE", "VLO"],
+    "XLV":  ["LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "AMGN", "PFE", "ISRG"],
+    "XLI":  ["GE", "CAT", "RTX", "HON", "UBER", "UNP", "ETN", "ADP", "LMT", "DE"],
+    "XLP":  ["PG", "COST", "WMT", "KO", "PEP", "PM", "MDLZ", "MO", "CL", "KMB"],
+    "XLY":  ["AMZN", "TSLA", "HD", "MCD", "BKNG", "TJX", "LOW", "SBUX", "NKE", "ORLY"],
+    "XLB":  ["LIN", "SHW", "APD", "ECL", "FCX", "NEM", "CTVA", "DD", "MLM", "VMC"],
+    "XLU":  ["NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "PEG", "EXC", "XEL"],
+    "XLRE": ["PLD", "AMT", "EQIX", "WELL", "SPG", "O", "PSA", "CCI", "DLR", "EXR"],
+    "XLC":  ["META", "GOOGL", "NFLX", "TMUS", "DIS", "CMCSA", "T", "VZ", "CHTR", "EA"],
+    "SMH":  ["NVDA", "TSM", "AVGO", "AMD", "ASML", "QCOM", "AMAT", "LRCX", "MU", "INTC"],
+    "XBI":  ["AMGN", "GILD", "VRTX", "REGN", "MRNA", "BIIB", "ALNY", "SRPT"],
+}
+
 INDEX_CACHE_DIR = "data/cache/us_idx"
 
 
