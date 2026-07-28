@@ -44,6 +44,8 @@ def parse_nse_events(items, universe):
             if sym not in uni or "result" not in purpose.lower():
                 continue
             d = pd.to_datetime(it.get("date") or it.get("bm_date"), dayfirst=True)
+            if pd.isna(d):                       # to_datetime(None) is NaT, not an error
+                continue
             out.append({"sym": sym, "name": str(it.get("company", ""))[:60],
                         "date": str(d.date()), "purpose": purpose})
         except Exception:

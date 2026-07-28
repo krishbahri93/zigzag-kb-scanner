@@ -395,7 +395,8 @@ def fetch_news(market, sym):
         for it in ET.fromstring(r.content).findall(".//item")[:8]:
             pub = it.findtext("pubDate")
             try:
-                pub = pd.to_datetime(pub).isoformat()
+                ts = pd.to_datetime(pub) if pub else None
+                pub = ts.isoformat() if ts is not None and not pd.isna(ts) else None
             except Exception:
                 pub = None
             items.append({"title": (it.findtext("title") or "")[:160],
