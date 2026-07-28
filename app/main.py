@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-from pinescan import notify, service
+from pinescan import notify, service, tradebook
 from pinescan.scanners import registry
 from app.jobs import Jobs
 
@@ -118,6 +118,54 @@ def api_news(market: str = "india", sym: str = ""):
         return JSONResponse({"items": [], "earnings_date": None})
     return JSONResponse({"items": service.fetch_news(market, sym),
                          "earnings_date": service.next_earnings(market, sym)})
+
+
+def _auth_user(request: Request) -> str:
+    """The dashboard login (Caddy forwards it) — the TradeBook is strictly per-user."""
+    return (request.headers.get("x-auth-user") or "guest").strip() or "guest"
+
+
+@app.get("/tradebook")
+def tradebook_page(request: Request, market: str = "india"):
+    """My TradeBook: the user's ACTUAL trades — open positions + official results."""
+    return templates.TemplateResponse(request, "tradebook.html", _ctx(request, market, page="tradebook"))
+
+
+@app.get("/api/tradebook")
+def api_tradebook(request: Request, market: str = "india", days: int = 30):
+    return JSONResponse(service._json_safe({
+        "listing": tradebook.listing(_auth_user(request), market),
+        "stats": tradebook.stats(_auth_user(request), market, days=days)}))
+
+
+@app.post("/api/tradebook/add")
+async def api_tradebook_add(request: Request, market: str = "india"):
+    try:
+        trade = tradebook.add(_auth_user(request), market, await request.json())
+        return JSONResponse({"ok": True, "trade": service._json_safe(trade)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "msg": str(e)[:200]}, status_code=400)
+
+
+@app.post("/api/tradebook/close")
+async def api_tradebook_close(request: Request):
+    try:
+        p = await request.json()
+        trade = tradebook.close(_auth_user(request), p["id"], p["exit_price"], p["reason"])
+        return JSONResponse({"ok": True, "trade": service._json_safe(trade)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "msg": str(e)[:200]}, status_code=400)
+
+
+@app.get("/indices")
+def indices_page(request: Request, market: str = "india"):
+    """Indices reference: EVERY index with its constituents on a dropdown."""
+    return templates.TemplateResponse(request, "indices.html", _ctx(request, market, page="indices"))
+
+
+@app.get("/api/indexlist")
+def api_indexlist(market: str = "india"):
+    return JSONResponse(service.index_list(market))
 
 
 @app.get("/active")

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .idxcard { background:var(--card); border:1px solid var(--border); border-radius:12px;
+             padding:11px 14px; margin-bottom:10px; box-shadow:var(--shadow); cursor:pointer; }
+  .idxcard .head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .idxcard .nm { font-weight:800; font-size:14.5px; }
+  .idxcard .full { color:var(--muted); font-size:12px; }
+  .idxcard .lvl { margin-left:auto; font-variant-numeric:tabular-nums; }
+  .idxcard .arrow { color:var(--muted); font-size:11px; }
+  .idxcard .body { display:none; margin-top:10px; }
+  .idxcard.open .body { display:block; }
+  .grphead { font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:var(--muted);
+             margin:16px 0 8px; }
+</style>
+<div class="meta" id="meta">Loading indices …</div>
+<div class="toolbar"><input type="text" id="fQ" placeholder="Search index or stock…"></div>
+<div id="list"></div>
+
+<p class="foot">Every {{ 'NSE/BSE index we track' if market == 'india' else 'US sector ETF we track' }},
+with its constituents one tap away — <b>highlighted chips are stocks our scanner is live on</b>.
+{% if market == 'india' %}Constituents are our universe's members of the index's sector (not the
+official roster) — the actionable view.{% else %}Constituents are representative top holdings.{% endif %}
+Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  let rows = [], open = {};
+  const F = { q: "" };
+
+  const badgeCls = s => s === "Triggered" ? "b-trig" : s === "In Zone" ? "b-zone"
+                     : s === "Active" ? "b-act" : s === "Approaching" ? "b-appr" : "";
+  const tvHref = r => r.tv_sym
+      ? "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(r.tv_sym) : K.tv(r.sym);
+
+  function memberChips(r) {
+    if (!r.members || !r.members.length)
+      return `<span class="muted" style="font-size:12px">No constituents mapping for this index.</span>`;
+    const chips = r.members.map(m => {
+      const dp = (m.day_pct === null || m.day_pct === undefined) ? "" :
+        `<span class="${m.day_pct >= 0 ? "pos" : "neg"}">${m.day_pct > 0 ? "+" : ""}${K.nf(m.day_pct, 1)}%</span>`;
+      return `<a class="mem ${m.sig ? "hassig" : ""}" target="_blank" rel="noopener" href="${K.tv(m.sym)}">
+        <b>${m.sym}</b>${m.ltp == null ? "" : " " + K.nf(m.ltp)} ${dp}
+        ${m.sig ? `<span class="badge ${badgeCls(m.sig)}">${m.sig}</span>` : ""}</a>`;
+    }).join("");
+    return `<div class="memhead">${r.members_note || r.members.length + " constituents"}</div>
+      <div class="memwrap">${chips}</div>`;
+  }
+
+  function matches(r) {
+    const q = F.q.toUpperCase();
+    if (!q) return true;
+    if (r.sym.toUpperCase().includes(q) || (r.name || "").toUpperCase().includes(q)) return true;
+    return (r.members || []).some(m => m.sym.toUpperCase().includes(q));
+  }
+
+  function render() {
+    const vis = rows.filter(matches);
+    const groups = [["Sectoral", vis.filter(r => r.kind === "Sectoral")],
+                    ["Broad", vis.filter(r => r.kind === "Broad")]];
+    $("list").innerHTML = groups.map(([g, rs]) => !rs.length ? "" :
+      `<div class="grphead">${g}</div>` + rs.map(r => {
+        const dp = r.day_pct;
+        return `<div class="idxcard ${open[r.sym] ? "open" : ""}" data-s="${r.sym}">
+          <div class="head">
+            <span class="nm">${r.sym}</span><span class="full">${r.name || ""}</span>
+            <a class="sym" style="font-size:11px" target="_blank" rel="noopener" href="${tvHref(r)}">chart ↗</a>
+            <span class="lvl">${K.nf(r.ltp)}
+              <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}">${(dp === null || dp === undefined) ? "" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
+            <span class="arrow">${open[r.sym] ? "▲ hide" : "▼ constituents"}</span>
+          </div>
+          <div class="body">${open[r.sym] ? memberChips(r) : ""}</div>
+        </div>`;
+      }).join("")).join("") ||
+      `<div class="muted" style="padding:24px;text-align:center">No index or constituent matches.</div>`;
+
+    document.querySelectorAll(".idxcard").forEach(el => el.onclick = e => {
+      if (e.target.closest("a")) return;
+      open[el.dataset.s] = !open[el.dataset.s];
+      render();
+    });
+  }
+
+  async function load() {
+    let res;
+    try { res = await (await fetch("/api/indexlist?market=" + K.MARKET)).json(); }
+    catch (e) { $("meta").textContent = "Could not load the index list."; return; }
+    rows = res.rows || [];
+    const withSig = rows.filter(r => (r.members || []).some(m => m.sig)).length;
+    $("meta").innerHTML = `<b>${rows.length}</b> indices tracked · constituents one tap away · ` +
+      `<b>${withSig}</b> ${withSig === 1 ? "index has" : "indices have"} live setups among their stocks`;
+    render();
+  }
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+  load();
+  setInterval(load, 10 * 60 * 1000);
+})();
+</script>
+{% endblock %}

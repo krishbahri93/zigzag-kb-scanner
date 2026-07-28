@@ -177,12 +177,13 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
           <span>R:R <b>${K.nf(t.rr)}</b></span>
           <span>${t.sector || ""}</span>
           <span class="muted">${K.rel(t.confirmed_at)}</span></div>
+          ${buyWidget(t)}
           <div class="memhead">Latest news</div>
           <div class="newsbox nb" data-sym="${t.sym}">Fetching headlines …</div>` : ""}
       </div>`;
     }).join("") || `<div class="muted" style="padding:20px;text-align:center">No setups match the current filters.</div>`;
     document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
-      if (e.target.closest("a")) return;
+      if (e.target.closest("a, .buyw")) return;       // links + the buy form don't collapse
       const t = rs[Number(el.dataset.i)];
       expanded = (expanded === key(t)) ? null : key(t);
       render();
@@ -190,6 +191,58 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
 
     window._syms = [...new Set(rs.map(t => t.sym))];
     if (expanded) fillNews(expanded.split(":")[0]);   // lazy headlines for the open row
+    wireBuy(document);                                 // TradeBook buy buttons
+  }
+
+  // "I bought this" — records the trade into My TradeBook with the plan snapshotted.
+  // Trigger price prefilled (editable to the actual fill); amount optional for ₹ P&L.
+  const BOOKED = {};                       // sym:swing recorded this page-load
+  function buyWidget(t) {
+    const key = `${t.sym}:${t.swing}`;
+    if (BOOKED[key]) return `<div class="buyw"><span class="badge b-trig">✓ In your TradeBook</span></div>`;
+    return `<div class="buyw" data-key="${key}">
+      <button class="btn bw-open">✋ I bought this</button>
+      <span class="bw-form" style="display:none">
+        <label>My price <input type="number" step="0.01" class="bw-price" value="${t.entry_hi ?? ""}" style="width:90px"></label>
+        <label>Amount ₹ <input type="number" step="1000" class="bw-amt" value="200000" style="width:100px"></label>
+        <label>Date <input type="date" class="bw-date" value="${new Date().toISOString().slice(0, 10)}" style="width:130px"></label>
+        <input type="text" class="bw-notes" placeholder="note (optional)" style="width:150px">
+        <button class="btn primary bw-save">Bought ✓</button>
+        <span class="bw-msg err"></span>
+      </span></div>`;
+  }
+  function wireBuy(scope) {
+    scope.querySelectorAll(".buyw .bw-open").forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      b.style.display = "none";
+      b.parentElement.querySelector(".bw-form").style.display = "inline-flex";
+    });
+    scope.querySelectorAll(".buyw .bw-save").forEach(b => b.onclick = async e => {
+      e.stopPropagation();
+      const w = b.closest(".buyw"), key = w.dataset.key;
+      const t = trades.find(x => `${x.sym}:${x.swing}` === key);
+      const body = {
+        sym: t.sym, swing: t.swing, name: t.name,
+        my_price: parseFloat(w.querySelector(".bw-price").value),
+        trigger_price: t.entry_hi, sl: t.sl, target: t.tp_lo,
+        amount: parseFloat(w.querySelector(".bw-amt").value) || null,
+        buy_date: w.querySelector(".bw-date").value,
+        notes: w.querySelector(".bw-notes").value,
+        depth_pct: t.depth_pct, rr: t.rr,
+      };
+      b.disabled = true;
+      try {
+        const res = await (await fetch(`/api/tradebook/add?market=${K.MARKET}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body) })).json();
+        if (res.ok) { BOOKED[key] = true; render(); }
+        else { w.querySelector(".bw-msg").textContent = res.msg; b.disabled = false; }
+      } catch (err) {
+        w.querySelector(".bw-msg").textContent = "could not save — retry";
+        b.disabled = false;
+      }
+    });
+    scope.querySelectorAll(".buyw input").forEach(i => i.onclick = e => e.stopPropagation());
   }
 
   function detailRow(t) {
@@ -200,6 +253,7 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
         <div class="swingbox">Sector: <b>${t.sector || "—"}</b><br>
           B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
       </div>
+      ${buyWidget(t)}
       <div class="memhead">Latest news</div>
       <div class="newsbox nb" data-sym="${t.sym}">Fetching headlines …</div></td></tr>`;
   }

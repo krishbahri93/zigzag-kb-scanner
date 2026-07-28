@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .patt { font-size:12.5px; color:var(--muted); background:var(--card); border:1px solid var(--border);
+          border-radius:10px; padding:9px 12px; margin:0 0 12px; }
+  .patt b { color:var(--text); }
+  .exitw { display:inline-flex; gap:6px; align-items:center; }
+  .exitw input { width:90px; padding:4px 6px; font-size:12.5px; }
+  .rsn { font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:999px; }
+  .rsn.target { background:var(--accent-soft); color:var(--accent-deep); }
+  .rsn.stop { background:var(--red-soft); color:var(--red); }
+  .rsn.manual { background:var(--blue-soft); color:var(--blue); }
+</style>
+<div class="meta" id="meta">Loading your TradeBook …</div>
+<div class="patt" id="patt" style="display:none"></div>
+
+<h2 style="margin-top:4px">Open positions</h2>
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr id="ohead"></tr></thead><tbody id="obody"></tbody>
+</table></div>
+<div class="mcards" id="omcards"></div>
+
+<h2>Results <span class="swingchips" id="pchips" style="margin-left:10px"></span></h2>
+<div class="cards" id="scards"></div>
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr id="chead"></tr></thead><tbody id="cbody"></tbody>
+</table></div>
+<div class="mcards" id="cmcards"></div>
+
+<p class="foot">Only what <b>you</b> record lives here — press "✋ I bought this" on a
+Scanner row to add a position, and 🎯 / 🛑 / Exit here to close it. This book is private
+to your login. Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  let DAYS = 30, DATA = null;
+  const PERIODS = [["7d", 7], ["30d", 30], ["90d", 90], ["1y", 365], ["All", 0]];
+
+  const money = v => (v === null || v === undefined) ? "—"
+      : (v < 0 ? "-₹" : "₹") + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+  const pct = v => (v === null || v === undefined) ? "—" : (v > 0 ? "+" : "") + K.nf(v) + "%";
+  const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+
+  function exitWidget(t) {
+    return `<span class="exitw" data-id="${t.id}">
+      <button class="btn xw" data-r="target" data-p="${t.target ?? t.cmp ?? ""}" title="Took profit">🎯</button>
+      <button class="btn xw" data-r="stop" data-p="${t.sl ?? t.cmp ?? ""}" title="Stop hit">🛑</button>
+      <button class="btn xw" data-r="manual" data-p="${t.cmp ?? ""}" title="Manual exit">Exit</button>
+    </span>`;
+  }
+
+  function renderOpen(rows) {
+    const H = ["Symbol", "Zone", "Bought", "Amount", "CMP", "Up by", "Stop", "Target", "Held", "Close as"];
+    $("ohead").innerHTML = H.map(h => `<th>${h}</th>`).join("");
+    $("obody").innerHTML = rows.map(t => {
+      const badges =
+        (t.scan_sig ? ` <span class="badge ${t.scan_sig === "Triggered" ? "b-trig" : "b-zone"}">${t.scan_sig}</span>` : "") +
+        (t.earnings_date ? ` <span class="badge b-appr" title="Results date from our earnings calendar">📅 ${t.earnings_date.slice(5)}</span>` : "");
+      return `<tr>
+        <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a>${badges}
+          ${t.notes ? `<br><span class="muted" style="font-size:10.5px">“${t.notes}”</span>` : ""}</td>
+        <td style="text-align:left"><span class="tn">${t.swing || "—"}</span></td>
+        <td>${t.buy_date}<br><span class="muted">@ ${K.nf(t.my_price)}</span></td>
+        <td>${money(t.amount)}</td>
+        <td>${K.nf(t.cmp)}</td>
+        <td class="${cls(t.up_pct)}"><b>${pct(t.up_pct)}</b>${t.up_amt != null ? `<br>${money(t.up_amt)}` : ""}</td>
+        <td>${K.nf(t.sl)}<br><span class="muted">${pct(t.dist_sl_pct)}</span></td>
+        <td>${K.nf(t.target)}<br><span class="muted">${pct(t.dist_target_pct)}</span></td>
+        <td>${t.held_days ?? "—"}d</td>
+        <td>${exitWidget(t)}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="10" class="muted" style="padding:22px;text-align:center">
+      Nothing open — record a buy from the Scanner tab (expand a row → “✋ I bought this”).</td></tr>`;
+
+    $("omcards").innerHTML = rows.map(t => `<div class="mcard">
+      <div class="r1"><a class="sym" href="${K.tv(t.sym)}" target="_blank" rel="noopener">${t.sym}</a>
+        <span class="tn">${t.swing || ""}</span>
+        ${t.earnings_date ? `<span class="badge b-appr">📅 ${t.earnings_date.slice(5)}</span>` : ""}
+        <span class="right num"><b class="${cls(t.up_pct)}">${pct(t.up_pct)}</b><br>
+          <span class="muted" style="font-size:11px">${money(t.up_amt)}</span></span></div>
+      <div class="r2"><span>@ <b>${K.nf(t.my_price)}</b> · ${t.buy_date}</span>
+        <span>CMP <b>${K.nf(t.cmp)}</b></span><span>${t.held_days ?? "—"}d</span></div>
+      <div class="r2"><span>SL <b>${K.nf(t.sl)}</b></span><span>TGT <b>${K.nf(t.target)}</b></span>
+        ${exitWidget(t)}</div>
+    </div>`).join("") || `<div class="muted" style="padding:18px;text-align:center">Nothing open yet.</div>`;
+
+    document.querySelectorAll(".exitw .xw").forEach(b => b.onclick = async () => {
+      const w = b.closest(".exitw"), reason = b.dataset.r;
+      const lbl = reason === "target" ? "🎯 exit price" : reason === "stop" ? "🛑 exit price" : "exit price";
+      const p = prompt(`${lbl} for this trade:`, b.dataset.p);
+      if (p === null) return;
+      const res = await (await fetch("/api/tradebook/close", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: w.dataset.id, exit_price: parseFloat(p), reason }) })).json();
+      if (res.ok) load(); else alert(res.msg || "could not record the exit");
+    });
+  }
+
+  function renderStats(s) {
+    $("pchips").innerHTML = PERIODS.map(([l, d]) =>
+      `<span class="chip ${DAYS === d ? "on" : ""}" data-d="${d}">${l}</span>`).join("");
+    document.querySelectorAll("#pchips .chip").forEach(el => el.onclick = () => {
+      DAYS = Number(el.dataset.d); load();
+    });
+
+    const C = [
+      ["Trades", s.n, ""],
+      ["Win rate", s.win_rate === null ? "—" : K.nf(s.win_rate, 0) + "%", s.win_rate >= 50 ? "v-trig" : "v-appr"],
+      ["P&L", money(s.pnl_amt), s.pnl_amt > 0 ? "v-trig" : s.pnl_amt < 0 ? "v-vol" : ""],
+      ["Avg %", pct(s.avg_pct), ""],
+      ["Avg hold", s.avg_hold_days === null ? "—" : s.avg_hold_days + "d", ""],
+      ["🎯 / 🛑 / Exit", `${s.by_reason.target}/${s.by_reason.stop}/${s.by_reason.manual}`, ""],
+    ];
+    $("scards").innerHTML = C.map(c => `<div class="kcard ${c[2]}" style="cursor:default">
+      <div class="lbl">${c[0]}</div><div class="val" style="font-size:19px">${c[1]}</div></div>`).join("");
+
+    const H = ["Symbol", "Zone", "Bought", "Exited", "Entry → Exit", "P&L %", "P&L ₹", "How", "Held"];
+    $("chead").innerHTML = H.map(h => `<th>${h}</th>`).join("");
+    $("cbody").innerHTML = s.trades.map(t => `<tr>
+      <td><a class="sym" target="_blank" rel="noopener" href="${K.tv(t.sym)}">${t.sym}</a></td>
+      <td style="text-align:left"><span class="tn">${t.swing || "—"}</span></td>
+      <td>${t.buy_date}</td><td>${t.exit_date}</td>
+      <td>${K.nf(t.my_price)} → ${K.nf(t.exit_price)}</td>
+      <td class="${cls(t.pnl_pct)}"><b>${pct(t.pnl_pct)}</b></td>
+      <td class="${cls(t.pnl_amt)}">${money(t.pnl_amt)}</td>
+      <td><span class="rsn ${t.exit_reason}">${t.exit_reason === "target" ? "🎯 Target" : t.exit_reason === "stop" ? "🛑 Stop" : "Exit"}</span></td>
+      <td>${t.hold_days ?? "—"}d</td>
+    </tr>`).join("") || `<tr><td colspan="9" class="muted" style="padding:22px;text-align:center">
+      No closed trades in this period.</td></tr>`;
+
+    $("cmcards").innerHTML = s.trades.map(t => `<div class="mcard">
+      <div class="r1"><span class="sym">${t.sym}</span>
+        <span class="rsn ${t.exit_reason}">${t.exit_reason === "target" ? "🎯" : t.exit_reason === "stop" ? "🛑" : "Exit"}</span>
+        <span class="right num"><b class="${cls(t.pnl_pct)}">${pct(t.pnl_pct)}</b><br>
+          <span class="muted" style="font-size:11px">${money(t.pnl_amt)}</span></span></div>
+      <div class="r2"><span>${t.buy_date} → ${t.exit_date}</span>
+        <span>${K.nf(t.my_price)} → ${K.nf(t.exit_price)}</span><span>${t.hold_days ?? "—"}d</span></div>
+    </div>`).join("");
+  }
+
+  async function load() {
+    let res;
+    try { res = await (await fetch(`/api/tradebook?market=${K.MARKET}&days=${DAYS}`)).json(); }
+    catch (e) { $("meta").textContent = "Could not load your TradeBook — check the connection."; return; }
+    DATA = res;
+    const nOpen = res.listing.open.length;
+    $("meta").innerHTML = `<b>${nOpen}</b> open position${nOpen === 1 ? "" : "s"} · ` +
+      `results for ${DAYS ? "the last " + DAYS + " days" : "all time"} · book private to your login`;
+    const p = res.listing.patterns;
+    if (p) {
+      $("patt").style.display = "";
+      $("patt").innerHTML = `<b>My patterns</b> (all time, ${p.n_total} recorded): ` +
+        (p.top_sectors.length ? `top sectors <b>${p.top_sectors.join(", ")}</b> · ` : "") +
+        (p.avg_amount ? `avg size <b>${money(p.avg_amount)}</b> · ` : "") +
+        (p.avg_fill_vs_trigger_pct !== null ? `avg fill vs trigger <b>${pct(p.avg_fill_vs_trigger_pct)}</b> · ` : "") +
+        `zones ${Object.entries(p.by_swing).map(([k, v]) => k + "×" + v).join(" ")}`;
+    }
+    renderOpen(res.listing.open);
+    renderStats(res.stats);
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+{% endblock %}

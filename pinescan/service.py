@@ -349,6 +349,30 @@ def scan_market(market, scanner="nsv2", live=False):
     })
 
 
+def index_list(market):
+    """EVERY index with its constituents — the Indices reference tab (unlike the Index
+    Scanner, which lists only indices carrying setups). Index level/day% off the index
+    cache; members via the same join the Index Scanner drill-down uses."""
+    if market == "india":
+        meta, cache = india.SECTORAL_INDICES, india.load_index_cache()
+    else:
+        meta, cache = us.SECTOR_ETFS, us.load_index_cache()
+    rows = []
+    for name, m in meta.items():
+        df = cache.get(name)
+        ltp = day = None
+        if df is not None and len(df) >= 2:
+            c = df["Close"]
+            ltp = float(c.iloc[-1])
+            v = float(c.iloc[-1] / c.iloc[-2] - 1) * 100
+            day = round(v, 2) if math.isfinite(v) else None
+        rows.append({"sym": name, "name": m.get("full", ""), "kind": m["kind"],
+                     "tv_sym": m.get("tv"), "ltp": ltp, "day_pct": day})
+    _attach_index_members(market, rows)
+    rows.sort(key=lambda r: (r["kind"] != "Sectoral", r["sym"]))
+    return _json_safe({"rows": rows, "market": market})
+
+
 def _scan_path(market, scanner):
     return f"data/results/{scanner}_{market}.json"
 
