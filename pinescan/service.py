@@ -231,6 +231,17 @@ def _is_behind(last_date, expected):
     return bool(expected) and bool(last_date) and last_date < expected
 
 
+def _display_scan_live(market):
+    """Should the DISPLAY scan merge today's intraday bar? True when the official cache
+    is behind the expected trading day — i.e. Dhan hasn't published today's EOD candles
+    yet (they run hours late since 2026-07-24). Without this, the 15:55 close run
+    overwrites the day's accurate live-tick prices with YESTERDAY'S closes and the
+    dashboard (and TradeBook CMPs) silently regress a day — the JKPAPER 414-vs-392
+    incident. With it, the evening keeps today's intraday truth, flagged by the
+    existing ◉ LIVE BAR badge, until the official bar lands (morning self-heal)."""
+    return _is_behind(data_status(market)["last_date"], _expected_asof(market))
+
+
 # Once-a-day guard for the morning self-heal (see _self_heal_official_bars).
 _SELFHEAL_STATE = "data/status/selfheal.json"
 
@@ -826,7 +837,7 @@ def refresh_market(market, on_progress=None):
     _say("Scanning the universe …")
     try:
         os.makedirs("data/results", exist_ok=True)
-        scan = scan_market(market)
+        scan = scan_market(market, live=_display_scan_live(market))
         io_safe.atomic_write_text(_scan_path(market, "nsv2"), json.dumps(scan, allow_nan=False))
         notify.process_scan_alerts(scan, market, live=False)   # ✅ confirms + 🎯/🛑 hits + EOD summary
     except Exception:

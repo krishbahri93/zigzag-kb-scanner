@@ -122,6 +122,33 @@ def test_stats_period_filter_and_aggregates(clean, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# CMP freshness (the JKPAPER 414-vs-392 incident)
+# ---------------------------------------------------------------------------
+def test_display_scan_goes_live_when_officials_are_behind(monkeypatch):
+    monkeypatch.setattr(service, "data_status", lambda m: {"last_date": "2026-07-27"})
+    monkeypatch.setattr(service, "_expected_asof", lambda m: "2026-07-28")
+    assert service._display_scan_live("india") is True     # Dhan late -> keep intraday view
+    monkeypatch.setattr(service, "data_status", lambda m: {"last_date": "2026-07-28"})
+    assert service._display_scan_live("india") is False    # officials landed -> normal scan
+
+
+def test_quote_prefers_intraday_when_cache_is_stale(tmp_path, monkeypatch):
+    import datetime as dt
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tradebook, "_scan_row", lambda m, s: None)   # no scanner row
+    stale = pd.DataFrame({"Close": [414.55]},
+                         index=pd.DatetimeIndex([dt.date.today() - dt.timedelta(days=1)]))
+    monkeypatch.setattr(tradebook.io_safe, "read_parquet_safe", lambda fp: stale)
+    fresh = pd.DataFrame({"Close": [392.35]}, index=pd.DatetimeIndex([dt.date.today()]))
+    from pinescan.markets import india
+    monkeypatch.setattr(india, "get_intraday", lambda s: fresh)
+    assert tradebook._quote("india", "JKPAPER") == 392.35   # today's truth wins
+    # intraday unavailable (pre-open) -> yesterday's official close is the honest latest
+    monkeypatch.setattr(india, "get_intraday", lambda s: None)
+    assert tradebook._quote("india", "JKPAPER") == 414.55
+
+
+# ---------------------------------------------------------------------------
 # Indices reference list
 # ---------------------------------------------------------------------------
 def test_index_list_covers_every_index(monkeypatch, tmp_path):

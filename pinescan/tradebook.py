@@ -61,13 +61,25 @@ def _scan_row(market, sym):
 
 
 def _quote(market, sym):
-    """Best-effort CMP: the live scan row's ltp, else the cache's last close (India)."""
+    """Best-effort CMP, freshest source first: the live scan row's ltp; else — when the
+    official cache is a day behind (Dhan publishes EOD hours late) — today's intraday
+    bar straight from Dhan; else the cache's last close. A results tracker must never
+    show yesterday's close as 'current' when today's truth is fetchable (the JKPAPER
+    414-vs-392 incident)."""
     r = _scan_row(market, sym)
     if r and r.get("ltp"):
         return float(r["ltp"])
     if market == "india":
         from pinescan.markets import india
         df = io_safe.read_parquet_safe(os.path.join(india.CACHE_DIR, f"{sym}.parquet"))
+        last = df.index[-1].date() if df is not None and len(df) else None
+        if last is None or last < dt.date.today():
+            try:
+                p = india.get_intraday(sym)
+                if p is not None and len(p):
+                    return float(p["Close"].iloc[-1])
+            except Exception:
+                pass
         if df is not None and len(df):
             return float(df["Close"].iloc[-1])
     return None
