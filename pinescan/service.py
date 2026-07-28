@@ -351,6 +351,74 @@ def _scan_path(market, scanner):
     return f"data/results/{scanner}_{market}.json"
 
 
+def scan_indices(market, refresh=False):
+    """Index Scanner: run the SAME nsv2 engine over the market's index universe — India's
+    NSE/BSE sectoral indices (Dhan IDX_I) or the US sector ETFs (Polygon) — and persist
+    the result as scanner "nsv2idx", so /api/scan?scanner=nsv2idx serves it with zero
+    extra plumbing. Payload shape mirrors scan_market's exactly (same dashboard code,
+    same stale-banner fields).
+
+    Indices print no volume, so the engine's volume filter is BYPASSED for India (the
+    same call the intraday Pine scripts made); US sector ETFs trade with real volume,
+    so they keep the stock defaults. Alerts ride the normal pipeline — index names
+    ("NIFTY METAL") are self-describing in the Telegram message and can't collide with
+    stock tickers in the dedupe state."""
+    sc = registry.get("nsv2")
+    if market == "india":
+        if refresh:
+            india.refresh_indices()
+        cache = india.load_index_cache()
+        meta = india.SECTORAL_INDICES
+        params = dict(sc.default_params, useVolFilter=False)   # indices have no volume
+    else:
+        if refresh:
+            us.refresh_indices()
+        cache = us.load_index_cache()
+        meta = us.SECTOR_ETFS
+        params = dict(sc.default_params)                       # ETFs: real volume, keep filter
+    rows, scanned, asof_dates = [], 0, set()
+    for name, df in cache.items():
+        if df is None or len(df) < sc.min_bars:
+            continue
+        try:
+            r = sc.scan_symbol(name, df, params)
+        except Exception:
+            continue
+        scanned += 1
+        if r is not None:
+            _enrich_row(r, df, meta[name]["kind"], 1.0)        # kind = Sectoral | Broad
+            r["name"] = meta[name].get("full", "")
+            r["tv_sym"] = meta[name].get("tv")                 # explicit TV chart code (India)
+            rows.append(r)
+            asof_dates.add(r["asof"])
+    rows.sort(key=lambda r: (not r["in_band"], not r["approaching"], -(r["n_swings"])))
+    actionable = [r for r in rows if (r["in_band"] or r["approaching"] or r["fired_entry"])
+                  and not r["expired"]]
+    _stamp_confirmed(market, "nsv2idx", rows)
+    payload = _json_safe({
+        "engine": f"{sc.name} on indices ({sc.display}, volume filter "
+                  f"{'bypassed' if market == 'india' else 'active'})",
+        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "live_bar": False,
+        "live_partials": 0,
+        "generated_for_date": str(pd.Timestamp.now(
+            tz="Asia/Kolkata" if market == "india" else "America/New_York").date()),
+        "data_asof": max(asof_dates) if asof_dates else None,
+        "expected_asof": _expected_asof(market),
+        "params": {k: params[k] for k in _SCAN_PARAM_KEYS if k in params},
+        "universe_size": len(meta),
+        "scanned_ok": scanned,
+        "setups_total": len(rows),
+        "actionable_count": len(actionable),
+        "actionable": [r["sym"] for r in actionable],
+        "rows": rows,
+    })
+    os.makedirs("data/results", exist_ok=True)
+    io_safe.atomic_write_text(_scan_path(market, "nsv2idx"), json.dumps(payload, allow_nan=False))
+    notify.process_scan_alerts(payload, market, live=False)
+    return payload
+
+
 def read_scan(market, scanner="nsv2"):
     """Read the CACHED scan JSON (written by Refresh / scan.py) — None if not generated yet. The web
     app serves this so a page load never re-scans the whole universe (which takes ~1 min)."""
@@ -532,6 +600,12 @@ def refresh_market(market, on_progress=None):
         # Never sink the refresh — but never fail SILENTLY either: a swallowed scan error
         # left the dashboard serving stale signals for two days (2026-07-09/10).
         print("  WARNING: the scan step failed — the dashboard keeps the PREVIOUS scan:")
+        traceback.print_exc()
+    _say("Scanning the index universe …")
+    try:
+        scan_indices(market, refresh=True)     # sectoral indices / sector ETFs + alerts
+    except Exception:
+        print("  WARNING: the index-scan step failed — the Index tab keeps its previous scan:")
         traceback.print_exc()
     _say("Updating the forward test …")
     try:

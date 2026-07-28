@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="meta" id="meta">Loading index scan …</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="toolbar">
+  <span class="swingchips" id="chips"></span>
+  <select id="fSector"><option value="">All categories</option></select>
+  <input type="text" id="fQ" placeholder="Search index…">
+  <button class="btn" id="bCopy">⎘ Copy for TradingView</button>
+  <button class="btn" id="bTxt">⬇ Download TXT</button>
+</div>
+
+<div class="tbl-wrap"><table class="trades">
+  <thead><tr id="head"></tr></thead>
+  <tbody id="body"></tbody>
+</table></div>
+<div class="mcards" id="mcards"></div>
+
+<p class="foot">The <b>same Nested Swings engine</b> run on {{ 'NSE/BSE sectoral indices'
+if market == 'india' else 'US sector ETFs' }} — sector-rotation timing at a glance.
+{% if market == 'india' %}Indices aren't directly tradeable: act via index F&amp;O or the
+sector's stocks (the volume filter is bypassed — indices print no volume).{% else %}Sector
+ETFs are directly tradeable; index data itself needs a paid Polygon plan, so ETFs stand in
+1:1.{% endif %} Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  const COLS = [
+    { k: "sym",          t: "Index"       },
+    { k: "swing",        t: "Zone"        },
+    { k: "sig",          t: "Status"      },
+    { k: "ltp",          t: "Level"       },
+    { k: "day_pct",      t: "Day %"       },
+    { k: "_entry",       t: "Entry"       },
+    { k: "_sl",          t: "Stop"        },
+    { k: "tp_lo",        t: "Target"      },
+    { k: "rr",           t: "RR"          },
+    { k: "dist_pct",     t: "From entry %" },
+    { k: "confirmed_at", t: "Confirmed"   },
+  ];
+  let trades = [], sortK = "rr", sortDir = -1, expanded = null;
+  const F = { sector: "", swing: "", q: "", showAppr: false, sig: "" };
+
+  const val = (t, k) => k === "_entry" ? t.entry_hi : k === "_sl" ? t.sl : t[k];
+  const newTag = t => t.fresh ? '<span class="newtag" title="Fresh — new this scan">NEW</span>' : "";
+  // Index rows carry an explicit TradingView code (legacy CNX names etc.); fall back to
+  // the market default when absent.
+  const tvHref = t => t.tv_sym
+      ? "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(t.tv_sym)
+      : K.tv(t.sym);
+
+  function visible() {
+    return trades.filter(t => t.sig !== "Active")
+      .filter(t => F.showAppr || t.sig !== "Approaching")
+      .filter(t =>
+        (!F.sig || t.sig === F.sig) &&
+        (!F.swing || t.swing === F.swing) &&
+        (!F.sector || t.sector === F.sector) &&
+        (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
+  }
+
+  function badge(t) {
+    const cls = t.sig === "Triggered" ? "b-trig" : t.sig === "In Zone" ? "b-zone" : "b-appr";
+    return `<span class="badge ${cls}">${t.sig}</span>`;
+  }
+
+  function render() {
+    const rs = visible().slice().sort((a, b) => {
+      const x = val(a, sortK), y = val(b, sortK);
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
+    });
+
+    const pool = trades.filter(t => t.sig !== "Active");
+    const C = [
+      ["All",         pool.length,                                      "ALL",       ""      ],
+      ["In Zone",     pool.filter(t => t.sig === "In Zone").length,     "In Zone",   "v-zone"],
+      ["Triggered",   pool.filter(t => t.sig === "Triggered").length,   "Triggered", "v-trig"],
+      ["Approaching", pool.filter(t => t.sig === "Approaching").length, "APPR",      "v-appr"],
+      ["Fresh",       pool.filter(t => t.fresh).length,                 "",          "v-fresh"],
+    ];
+    $("cards").innerHTML = C.map(c => {
+      const on = c[2] === "APPR" ? F.showAppr : (c[2] && c[2] === F.sig);
+      return `<div class="kcard ${c[3]} ${on ? "on" : ""}" data-f="${c[2]}">
+        <div class="lbl">${c[0]}</div><div class="val">${c[1]}</div></div>`;
+    }).join("");
+    document.querySelectorAll(".kcard").forEach(el => el.onclick = () => {
+      const f = el.dataset.f;
+      if (f === "ALL") {
+        F.sig = ""; F.showAppr = true; F.swing = ""; F.sector = ""; F.q = "";
+        $("fSector").value = ""; $("fQ").value = "";
+      }
+      else if (f === "APPR") { F.showAppr = !F.showAppr; F.sig = F.showAppr ? "Approaching" : ""; }
+      else if (f) { F.sig = (F.sig === f) ? "" : f; if (F.sig !== "Approaching") F.showAppr = false; }
+      render();
+    });
+
+    $("chips").innerHTML = ["", "T1", "T2", "T3", "T4"].map(s =>
+      `<span class="chip ${F.swing === s ? "on" : ""}" data-s="${s}">${s || "All"}</span>`).join("");
+    document.querySelectorAll("#chips .chip").forEach(el => el.onclick = () => {
+      F.swing = el.dataset.s; render();
+    });
+
+    $("head").innerHTML = COLS.map(c =>
+      `<th data-k="${c.k}">${c.t} ${sortK === c.k ? `<span class="arr">${sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`
+    ).join("");
+    document.querySelectorAll("#head th[data-k]").forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = -1; }
+      render();
+    });
+
+    const key = t => t.sym + ":" + t.swing;
+
+    $("body").innerHTML = rs.map((t, i) => {
+      const dp = t.day_pct;
+      const nm = t.name ? `<br><span class="muted" style="font-size:10.5px">${t.name.slice(0, 34)}</span>` : "";
+      return `<tr class="datarow" data-i="${i}">
+        <td><a class="sym" target="_blank" rel="noopener" href="${tvHref(t)}">${t.sym}</a>${newTag(t)}${nm}</td>
+        <td style="text-align:left"><span class="tn">${t.swing}</span></td>
+        <td style="text-align:left">${badge(t)}</td>
+        <td>${K.nf(t.ltp)}</td>
+        <td class="${dp > 0 ? "pos" : dp < 0 ? "neg" : ""}">${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</td>
+        <td>${K.nf(t.entry_hi)}</td>
+        <td>${K.nf(t.sl)}</td>
+        <td>${K.nf(t.tp_lo)}</td>
+        <td>${K.nf(t.rr)}</td>
+        <td>${(t.dist_pct === null || t.dist_pct === undefined) ? "—" : K.nf(t.dist_pct) + "%"}</td>
+        <td class="muted">${K.rel(t.confirmed_at)}</td>
+      </tr>` + (expanded === key(t) ? detailRow(t) : "");
+    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No index setups match the current filters.</td></tr>`;
+
+    document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
+      if (e.target.closest("a")) return;
+      const t = rs[Number(tr.dataset.i)];
+      expanded = (expanded === key(t)) ? null : key(t);
+      render();
+    });
+
+    $("mcards").innerHTML = rs.map((t, i) => {
+      const dp = t.day_pct;
+      return `<div class="mcard" data-i="${i}">
+        <div class="r1">
+          <a class="sym" target="_blank" rel="noopener" href="${tvHref(t)}">${t.sym}</a>
+          <span class="tn">${t.swing}</span>${badge(t)}${newTag(t)}
+          <span class="right num"><b>${K.nf(t.ltp)}</b><br>
+            <span class="${dp > 0 ? "pos" : dp < 0 ? "neg" : "muted"}" style="font-size:12px">
+              ${(dp === null || dp === undefined) ? "—" : (dp > 0 ? "+" : "") + K.nf(dp) + "%"}</span></span>
+        </div>
+        <div class="r2">
+          <span>Entry <b>${K.nf(t.entry_hi)}</b></span>
+          <span>Stop <b>${K.nf(t.sl)}</b></span>
+          <span>Target <b>${K.nf(t.tp_lo)}</b></span>
+          <span>R:R <b>${K.nf(t.rr)}</b></span>
+        </div>
+        ${expanded === key(t) ? `<div class="more r2">
+          <span>Entry band <b>${K.band(t.entry_lo, t.entry_hi)}</b></span>
+          <span>Target band <b>${K.band(t.tp_lo, t.tp_hi)}</b></span>
+          <span>From entry <b>${t.dist_pct == null ? "—" : K.nf(t.dist_pct) + "%"}</b></span>
+          <span>Depth <b>${K.nf(t.depth_pct, 1)}%</b></span>
+          <span>${t.sector || ""}</span>
+          <span class="muted">${K.rel(t.confirmed_at)}</span></div>` : ""}
+      </div>`;
+    }).join("") || `<div class="muted" style="padding:20px;text-align:center">No index setups match the current filters.</div>`;
+    document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
+      if (e.target.closest("a")) return;
+      const t = rs[Number(el.dataset.i)];
+      expanded = (expanded === key(t)) ? null : key(t);
+      render();
+    });
+
+    // TV codes (not plain names) power the copy/download buttons on this page
+    window._idxsyms = [...new Set(rs.map(t => t.tv_sym || t.sym))];
+  }
+
+  function detailRow(t) {
+    return `<tr class="detail"><td colspan="11">
+      <div class="swings">
+        <div class="swingbox"><b>${t.swing}</b> · depth ${K.nf(t.depth_pct, 1)}% · peak A ${K.nf(t.A)}<br>
+          Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
+        <div class="swingbox">Category: <b>${t.sector || "—"}</b><br>
+          B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
+      </div></td></tr>`;
+  }
+
+  $("fSector").onchange = e => { F.sector = e.target.value; render(); };
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+  // local copy/download — rows already carry full TV codes, so no market prefixing here
+  $("bCopy").onclick = async () => {
+    const txt = (window._idxsyms || []).join(",");
+    try { await navigator.clipboard.writeText(txt);
+          $("bCopy").textContent = "✓ Copied " + (window._idxsyms || []).length; }
+    catch (e) { prompt("Copy this:", txt); }
+    setTimeout(() => { $("bCopy").textContent = "⎘ Copy for TradingView"; }, 2500);
+  };
+  $("bTxt").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([(window._idxsyms || []).join(",")], { type: "text/plain" }));
+    a.download = "kwm_indexes_" + new Date().toISOString().slice(0, 10) + ".txt";
+    a.click();
+  };
+
+  async function load() {
+    let res;
+    try { res = await K.fetchScan("nsv2idx"); }
+    catch (e) { $("meta").textContent = "Could not load the index scan — check the connection and refresh."; return; }
+    if (!res.scan) { $("meta").textContent = "No index scan yet — press Refresh to run the first one."; return; }
+    trades = K.flatten(res.scan);
+    const todays = trades.filter(t => t.sig === "In Zone" || t.sig === "Triggered").length;
+    const stale = res.scan.expected_asof && res.scan.data_asof
+      && res.scan.data_asof < res.scan.expected_asof;
+    const staleTag = stale
+      ? `<div style="background:var(--red);color:#fff;padding:8px 12px;border-radius:8px;margin:0 0 8px;font-weight:700">` +
+        `⚠ Index data may be STALE — last scan ${res.scan.data_asof}, expected ${res.scan.expected_asof}. ` +
+        `If today wasn't a trading holiday, press Refresh.</div>`
+      : "";
+    $("meta").innerHTML = staleTag +
+      `Data as of ${K.fmtDate(res.scan.data_asof)} · ${res.scan.scanned_ok} of ` +
+      `${res.scan.universe_size} indices scanned · <b>${todays}</b> setups to watch today`;
+    const cats = [...new Set(trades.map(t => t.sector).filter(Boolean))].sort();
+    $("fSector").innerHTML = '<option value="">All categories</option>' +
+      cats.map(s => `<option${s === F.sector ? " selected" : ""}>${s}</option>`).join("");
+    render();
+  }
+  load();
+  setInterval(load, 5 * 60 * 1000);
+})();
+</script>
+{% endblock %}

@@ -90,6 +90,13 @@ def scanner_page(request: Request, market: str = "india", scanner: str = "nsv2")
     return templates.TemplateResponse(request, "scanner.html", ctx)
 
 
+@app.get("/indexes")
+def indexes_page(request: Request, market: str = "india"):
+    """Index Scanner: the same engine over sectoral indices (India) / sector ETFs (US).
+    The page fetches its scan client-side via /api/scan?scanner=nsv2idx."""
+    return templates.TemplateResponse(request, "indexes.html", _ctx(request, market, page="indexes"))
+
+
 @app.get("/active")
 def active_page(request: Request, market: str = "india", scanner: str = "nsv2"):
     ctx = _ctx(request, market, page="active")

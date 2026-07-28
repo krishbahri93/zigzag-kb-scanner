@@ -53,14 +53,16 @@
             sym: r.sym, sector: r.sector || "", name: r.name || "",
             ltp: r.ltp, day_pct: r.day_pct,
             vol_x: r.vol_x, asof: r.asof, B: r.B, sig: sig,
+            tv_sym: r.tv_sym || null,   // explicit TradingView code (Index Scanner rows)
           }));
         });
       });
       return out;
     }
 
-    async function fetchScan() {
-      const res = await (await fetch("/api/scan?market=" + MARKET)).json();
+    async function fetchScan(scanner) {   // scanner: optional, e.g. "nsv2idx" (Index Scanner)
+      const res = await (await fetch("/api/scan?market=" + MARKET
+          + (scanner ? "&scanner=" + scanner : ""))).json();
       if (res.scan && res.scan.generated_at) {
         const t = new Date(res.scan.generated_at);
         const el = document.getElementById("updated");
@@ -243,6 +245,7 @@
   </div>
   <div class="navrow">
     <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
+    <a class="tab {% if page == 'indexes' %}on{% endif %}" href="/indexes?market={{ market }}">Index Scanner</a>
     <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active Trades</a>
     <a class="tab {% if page == 'targets' %}on{% endif %}" href="/targets?market={{ market }}">Target Hits</a>
     <a class="tab {% if page == 'stops' %}on{% endif %}" href="/stops?market={{ market }}">Stop Hits</a>

@@ -40,6 +40,82 @@ CACHE_DIR = "data/cache/india"
 # for the backtest's benchmark — same authenticated provider as the stocks, no second source.
 INDEX_IDS = {"Nifty 50": "13", "Sensex": "51"}
 
+# ---------------------------------------------------------------------------
+# Index Scanner universe (Krish, 2026-07-28): every NSE/BSE SECTORAL index that is
+# chartable through Dhan's IDX_I segment, plus the broad benchmarks he watches.
+# ids come from Dhan's scrip master (191 index instruments discovered; curated here to
+# the sector set + broad anchors — factor/strategy indices like ALPHA/QUALITY excluded
+# by design). `tv` is the TradingView chart code where known (legacy CNX names); an
+# unknown one falls back to the plain name, which TV's search resolves.
+# ---------------------------------------------------------------------------
+SECTORAL_INDICES = {
+    # --- sectoral (NSE) ---
+    "NIFTY BANK":        {"sid": "25",  "kind": "Sectoral", "tv": "NSE:BANKNIFTY",   "full": "Nifty Bank"},
+    "NIFTY FIN SERVICE": {"sid": "27",  "kind": "Sectoral", "tv": "NSE:CNXFINANCE",  "full": "Nifty Financial Services"},
+    "NIFTY PVT BANK":    {"sid": "15",  "kind": "Sectoral", "tv": "NSE:NIFTYPVTBANK", "full": "Nifty Private Bank"},
+    "NIFTY PSU BANK":    {"sid": "33",  "kind": "Sectoral", "tv": "NSE:CNXPSUBANK",  "full": "Nifty PSU Bank"},
+    "NIFTY IT":          {"sid": "29",  "kind": "Sectoral", "tv": "NSE:CNXIT",       "full": "Nifty IT"},
+    "NIFTY AUTO":        {"sid": "14",  "kind": "Sectoral", "tv": "NSE:CNXAUTO",     "full": "Nifty Auto"},
+    "NIFTY PHARMA":      {"sid": "32",  "kind": "Sectoral", "tv": "NSE:CNXPHARMA",   "full": "Nifty Pharma"},
+    "NIFTY HEALTHCARE":  {"sid": "447", "kind": "Sectoral", "tv": "NSE:NIFTY_HEALTHCARE", "full": "Nifty Healthcare"},
+    "NIFTY FMCG":        {"sid": "28",  "kind": "Sectoral", "tv": "NSE:CNXFMCG",     "full": "Nifty FMCG"},
+    "NIFTY METAL":       {"sid": "31",  "kind": "Sectoral", "tv": "NSE:CNXMETAL",    "full": "Nifty Metal"},
+    "NIFTY ENERGY":      {"sid": "42",  "kind": "Sectoral", "tv": "NSE:CNXENERGY",   "full": "Nifty Energy"},
+    "NIFTY OIL AND GAS": {"sid": "470", "kind": "Sectoral", "tv": "NSE:NIFTY_OIL_AND_GAS", "full": "Nifty Oil & Gas"},
+    "NIFTY REALTY":      {"sid": "34",  "kind": "Sectoral", "tv": "NSE:CNXREALTY",   "full": "Nifty Realty"},
+    "NIFTY MEDIA":       {"sid": "30",  "kind": "Sectoral", "tv": "NSE:CNXMEDIA",    "full": "Nifty Media"},
+    "NIFTY INFRA":       {"sid": "43",  "kind": "Sectoral", "tv": "NSE:CNXINFRA",    "full": "Nifty Infrastructure"},
+    "NIFTY PSE":         {"sid": "41",  "kind": "Sectoral", "tv": "NSE:CNXPSE",      "full": "Nifty PSE"},
+    "NIFTY MNC":         {"sid": "44",  "kind": "Sectoral", "tv": "NSE:CNXMNC",      "full": "Nifty MNC"},
+    "NIFTY SERV SECTOR": {"sid": "46",  "kind": "Sectoral", "tv": "NSE:CNXSERVICE",  "full": "Nifty Services Sector"},
+    "NIFTY COMMODITIES": {"sid": "39",  "kind": "Sectoral", "tv": "NSE:CNXCOMMODITIES", "full": "Nifty Commodities"},
+    "NIFTY CONSUMPTION": {"sid": "40",  "kind": "Sectoral", "tv": "NSE:CNXCONSUM",   "full": "Nifty India Consumption"},
+    "NIFTY CONSR DURBL": {"sid": "466", "kind": "Sectoral", "tv": "NSE:NIFTY_CONSR_DURBL", "full": "Nifty Consumer Durables"},
+    "NIFTY INDIA MFG":   {"sid": "474", "kind": "Sectoral", "tv": "NSE:NIFTY_IND_MFG", "full": "Nifty India Manufacturing"},
+    # --- broad anchors ---
+    "NIFTY 50":          {"sid": "13",  "kind": "Broad",    "tv": "NSE:NIFTY",       "full": "Nifty 50"},
+    "NIFTY NEXT 50":     {"sid": "38",  "kind": "Broad",    "tv": "NSE:NIFTYJR",     "full": "Nifty Next 50"},
+    "NIFTY MIDCAP SELECT": {"sid": "442", "kind": "Broad",  "tv": "NSE:NIFTY_MID_SELECT", "full": "Nifty Midcap Select"},
+    "NIFTY 500":         {"sid": "19",  "kind": "Broad",    "tv": "NSE:CNX500",      "full": "Nifty 500"},
+    "SENSEX":            {"sid": "51",  "kind": "Broad",    "tv": "BSE:SENSEX",      "full": "S&P BSE Sensex"},
+    "BANKEX":            {"sid": "69",  "kind": "Sectoral", "tv": "BSE:BANKEX",      "full": "S&P BSE Bankex"},
+}
+
+INDEX_CACHE_DIR = "data/cache/india_idx"
+
+
+def refresh_indices(days=1100):
+    """Fetch/refresh daily bars for every index in SECTORAL_INDICES into its own parquet
+    cache (files keyed by Dhan security id — names carry spaces/&). Same crash-safe merge
+    as refresh_recent; failures classified via LAST_FETCH_ERROR. Cheap: ~28 calls."""
+    os.makedirs(INDEX_CACHE_DIR, exist_ok=True)
+    ok, failed = 0, []
+    for name, m in SECTORAL_INDICES.items():
+        recent = fetch_index_daily(m["sid"], days=days)
+        if recent is None or len(recent) == 0:
+            failed.append(f"{name}({LAST_FETCH_ERROR})")
+            continue
+        fp = os.path.join(INDEX_CACHE_DIR, f"{m['sid']}.parquet")
+        old = io_safe.read_parquet_safe(fp)
+        if old is not None:
+            recent = pd.concat([old, recent])
+            recent = recent[~recent.index.duplicated(keep="last")].sort_index()
+        io_safe.atomic_to_parquet(recent, fp)
+        ok += 1
+    print(f"  refresh_indices: {ok}/{len(SECTORAL_INDICES)} indices updated"
+          + (f"; failed: {', '.join(failed)}" if failed else ""))
+    return {"updated": ok, "failed": failed}
+
+
+def load_index_cache():
+    """{display name -> daily OHLCV DataFrame} for every cached index (absent ones skipped)."""
+    out = {}
+    for name, m in SECTORAL_INDICES.items():
+        df = io_safe.read_parquet_safe(os.path.join(INDEX_CACHE_DIR, f"{m['sid']}.parquet"))
+        if df is not None and len(df):
+            out[name] = df
+    return out
+
 
 # ============================================================================
 # UNIVERSE — NSE Nifty Total Market (~750: large + mid + small + microcaps,

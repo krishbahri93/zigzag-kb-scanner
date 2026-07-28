@@ -37,6 +37,71 @@ UNIVERSE_FILE = "data/cache/us/universe.json"   # cached liquid-universe selecti
 # than the per-date stock cache. Mirrors india.INDEX_IDS on the Dhan side.
 US_BENCHMARKS = {"S&P 500 (SPY)": "SPY", "Nasdaq-100 (QQQ)": "QQQ"}
 
+# ---------------------------------------------------------------------------
+# Index Scanner universe (Krish, 2026-07-28). Free-tier Polygon carries NO index data
+# (I:SPX etc. need a paid Indices plan), so the US sector picture is tracked through the
+# SPDR sector ETFs — chartable everywhere, actually tradeable, and served by the same
+# single-ticker aggregates endpoint as SPY/QQQ. `kind` mirrors india.SECTORAL_INDICES.
+# ---------------------------------------------------------------------------
+SECTOR_ETFS = {
+    "XLK":  {"kind": "Sectoral", "full": "Technology (SPDR XLK)"},
+    "XLF":  {"kind": "Sectoral", "full": "Financials (SPDR XLF)"},
+    "XLE":  {"kind": "Sectoral", "full": "Energy (SPDR XLE)"},
+    "XLV":  {"kind": "Sectoral", "full": "Health Care (SPDR XLV)"},
+    "XLI":  {"kind": "Sectoral", "full": "Industrials (SPDR XLI)"},
+    "XLP":  {"kind": "Sectoral", "full": "Consumer Staples (SPDR XLP)"},
+    "XLY":  {"kind": "Sectoral", "full": "Consumer Discretionary (SPDR XLY)"},
+    "XLB":  {"kind": "Sectoral", "full": "Materials (SPDR XLB)"},
+    "XLU":  {"kind": "Sectoral", "full": "Utilities (SPDR XLU)"},
+    "XLRE": {"kind": "Sectoral", "full": "Real Estate (SPDR XLRE)"},
+    "XLC":  {"kind": "Sectoral", "full": "Communication Services (SPDR XLC)"},
+    "SMH":  {"kind": "Sectoral", "full": "Semiconductors (VanEck SMH)"},
+    "XBI":  {"kind": "Sectoral", "full": "Biotech (SPDR XBI)"},
+    "SPY":  {"kind": "Broad",    "full": "S&P 500 (SPY)"},
+    "QQQ":  {"kind": "Broad",    "full": "Nasdaq-100 (QQQ)"},
+    "DIA":  {"kind": "Broad",    "full": "Dow Jones (DIA)"},
+    "IWM":  {"kind": "Broad",    "full": "Russell 2000 (IWM)"},
+}
+
+INDEX_CACHE_DIR = "data/cache/us_idx"
+
+
+def refresh_indices(days=760):
+    """Fetch/refresh daily bars for every SECTOR_ETFS ticker into its own parquet cache.
+    17 tickers x RATE_SLEEP (free tier 5/min) ≈ 4 min — fine inside the 02:00 close run
+    and the manual Refresh. Crash-safe merge like the India side."""
+    os.makedirs(INDEX_CACHE_DIR, exist_ok=True)
+    ok, failed = 0, []
+    for sym in SECTOR_ETFS:
+        try:
+            recent = fetch_benchmark_daily(sym, days=days)
+        except Exception:
+            recent = None
+        if recent is None or len(recent) == 0:
+            failed.append(sym)
+            continue
+        fp = os.path.join(INDEX_CACHE_DIR, f"{sym}.parquet")
+        old = io_safe.read_parquet_safe(fp)
+        if old is not None:
+            recent = pd.concat([old, recent])
+            recent = recent[~recent.index.duplicated(keep="last")].sort_index()
+        io_safe.atomic_to_parquet(recent, fp)
+        ok += 1
+    print(f"  refresh_indices (us): {ok}/{len(SECTOR_ETFS)} ETFs updated"
+          + (f"; failed: {', '.join(failed)}" if failed else ""))
+    return {"updated": ok, "failed": failed}
+
+
+def load_index_cache():
+    """{ticker -> daily OHLCV DataFrame} for every cached sector ETF (absent ones skipped)."""
+    out = {}
+    for sym in SECTOR_ETFS:
+        df = io_safe.read_parquet_safe(os.path.join(INDEX_CACHE_DIR, f"{sym}.parquet"))
+        if df is not None and len(df):
+            out[sym] = df
+    return out
+
+
 # Free tier = 5 calls/min. 13s spacing ≈ 4.6/min — a safe margin.
 RATE_SLEEP = float(os.environ.get("US_RATE_SLEEP", "13"))
 
