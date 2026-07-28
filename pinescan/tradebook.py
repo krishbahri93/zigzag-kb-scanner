@@ -67,19 +67,26 @@ def _quote(market, sym):
     show yesterday's close as 'current' when today's truth is fetchable (the JKPAPER
     414-vs-392 incident)."""
     r = _scan_row(market, sym)
-    if r and r.get("ltp"):
+    # Trust the scan's price only when the scan actually priced TODAY (live tick or a
+    # fresh official bar). An evening scan built while Dhan's EOD candles are missing
+    # carries yesterday's close in ltp — for a HELD stock, one direct intraday call is
+    # cheap and true (bulk merges throttle; singles don't).
+    today = str(dt.date.today())
+    if r and r.get("ltp") and str(r.get("asof") or "") >= today:
         return float(r["ltp"])
     if market == "india":
         from pinescan.markets import india
+        try:
+            p = india.get_intraday(sym)
+            if p is not None and len(p):
+                return float(p["Close"].iloc[-1])
+        except Exception:
+            pass
+    if r and r.get("ltp"):
+        return float(r["ltp"])                    # stale scan price beats nothing
+    if market == "india":
+        from pinescan.markets import india
         df = io_safe.read_parquet_safe(os.path.join(india.CACHE_DIR, f"{sym}.parquet"))
-        last = df.index[-1].date() if df is not None and len(df) else None
-        if last is None or last < dt.date.today():
-            try:
-                p = india.get_intraday(sym)
-                if p is not None and len(p):
-                    return float(p["Close"].iloc[-1])
-            except Exception:
-                pass
         if df is not None and len(df):
             return float(df["Close"].iloc[-1])
     return None

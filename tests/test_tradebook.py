@@ -148,6 +148,32 @@ def test_quote_prefers_intraday_when_cache_is_stale(tmp_path, monkeypatch):
     assert tradebook._quote("india", "JKPAPER") == 414.55
 
 
+def test_quote_distrusts_stale_scan_ltp(tmp_path, monkeypatch):
+    # The JKPAPER evening: scan row EXISTS but was built from yesterday's officials
+    # (asof < today) — its ltp must lose to a fresh intraday quote.
+    import datetime as dt
+    monkeypatch.chdir(tmp_path)
+    yday = str(dt.date.today() - dt.timedelta(days=1))
+    monkeypatch.setattr(tradebook, "_scan_row",
+                        lambda m, s: {"ltp": 414.55, "asof": yday})
+    fresh = pd.DataFrame({"Close": [392.35]}, index=pd.DatetimeIndex([dt.date.today()]))
+    from pinescan.markets import india
+    monkeypatch.setattr(india, "get_intraday", lambda s: fresh)
+    assert tradebook._quote("india", "JKPAPER") == 392.35
+    # scan priced TODAY (live tick) -> its ltp is authoritative, no extra API call
+    monkeypatch.setattr(tradebook, "_scan_row",
+                        lambda m, s: {"ltp": 393.1, "asof": str(dt.date.today())})
+    monkeypatch.setattr(india, "get_intraday",
+                        lambda s: (_ for _ in ()).throw(AssertionError("must not call")))
+    assert tradebook._quote("india", "JKPAPER") == 393.1
+    # stale scan + intraday down -> stale ltp beats nothing
+    monkeypatch.setattr(tradebook, "_scan_row",
+                        lambda m, s: {"ltp": 414.55, "asof": yday})
+    monkeypatch.setattr(india, "get_intraday", lambda s: None)
+    monkeypatch.setattr(tradebook.io_safe, "read_parquet_safe", lambda fp: None)
+    assert tradebook._quote("india", "JKPAPER") == 414.55
+
+
 # ---------------------------------------------------------------------------
 # Indices reference list
 # ---------------------------------------------------------------------------
