@@ -1,18 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-  /* constituents drill-down — inherits the app's tokens so it blends on both themes */
-  .memhead { font-size:11px; letter-spacing:.5px; text-transform:uppercase;
-             color:var(--muted); margin:10px 0 6px; }
-  .memwrap { display:flex; flex-wrap:wrap; gap:6px; }
-  .mem { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 9px;
-         border:1px solid var(--border); border-radius:8px; background:var(--card);
-         text-decoration:none; }
-  .mem b { font-weight:700; }
-  .mem:hover { border-color:var(--accent); }
-  .mem.hassig { border-color:var(--accent); background:var(--accent-soft); }
-  .mem .badge { min-width:auto; padding:2px 7px; font-size:10px; }
-</style>
+{# chip-grid styles (.mem/.memhead/.memwrap) live in base.html — shared with Earnings #}
 <div class="meta" id="meta">Loading index scan …</div>
 
 <div class="cards" id="cards"></div>

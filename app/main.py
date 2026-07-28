@@ -97,6 +97,25 @@ def indexes_page(request: Request, market: str = "india"):
     return templates.TemplateResponse(request, "indexes.html", _ctx(request, market, page="indexes"))
 
 
+@app.get("/earnings")
+def earnings_page(request: Request, market: str = "india"):
+    """Earnings calendar: who reports results in the next ~3 weeks, joined with our
+    live scan states. Data comes client-side from /api/earnings."""
+    return templates.TemplateResponse(request, "earnings.html", _ctx(request, market, page="earnings"))
+
+
+@app.get("/api/earnings")
+def api_earnings(market: str = "india"):
+    return JSONResponse(service.earnings_payload(market))
+
+
+@app.get("/api/news")
+def api_news(market: str = "india", sym: str = ""):
+    """Latest headlines for one stock (Google News RSS, server-cached ~30 min). Fetched
+    lazily when a scanner row expands — never bulk-polled."""
+    return JSONResponse({"items": service.fetch_news(market, sym) if sym else []})
+
+
 @app.get("/active")
 def active_page(request: Request, market: str = "india", scanner: str = "nsv2"):
     ctx = _ctx(request, market, page="active")

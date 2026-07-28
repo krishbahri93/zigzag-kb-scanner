@@ -32,8 +32,9 @@ import traceback
 import datetime as dt
 
 import pandas as pd
+import requests
 
-from pinescan import io_safe, notify, study
+from pinescan import earnings, io_safe, notify, study
 from pinescan.backtest.rules.registry import load_policy
 from pinescan.backtest import engine, events, metrics
 from pinescan.scanners import registry
@@ -349,6 +350,62 @@ def scan_market(market, scanner="nsv2", live=False):
 
 def _scan_path(market, scanner):
     return f"data/results/{scanner}_{market}.json"
+
+
+def earnings_payload(market):
+    """The cached earnings calendar joined with the CURRENT scan — each reporting stock
+    tagged with our live state (Active/Triggered/In Zone/Approaching), so 'who reports
+    this week' doubles as 'which of MY names report this week'."""
+    cal = earnings.read_earnings(market)
+    scan = read_scan(market, "nsv2") or {}
+    state = {r["sym"]: _best_sig(r) for r in scan.get("rows", [])}
+    rows = cal.get("rows", [])
+    for r in rows:
+        r["sig"] = state.get(r["sym"])
+    return {"fetched_at": cal.get("fetched_at"), "rows": rows,
+            "n_total": len(rows), "n_with_sig": sum(1 for r in rows if r.get("sig"))}
+
+
+# per-(market,symbol) headline cache — the web process is long-lived, 30 min is plenty
+_NEWS_CACHE = {}
+_NEWS_TTL_S = 30 * 60
+
+
+def fetch_news(market, sym):
+    """Latest headlines for one stock via Google News RSS (no key, verified reachable).
+
+    Queries by COMPANY NAME (the universe caches store them) rather than the ticker —
+    'Lodha Developers stock' finds news, 'LODHA stock' mostly doesn't. Cached ~30 min per
+    symbol; fetched on demand when a dashboard row expands, so we never bulk-poll 752
+    symbols. Returns [{title, link, source, published}] (≤8), [] on any failure."""
+    import time
+    import xml.etree.ElementTree as ET
+    key = (market, sym.upper())
+    hit = _NEWS_CACHE.get(key)
+    if hit and time.time() - hit["at"] < _NEWS_TTL_S:
+        return hit["items"]
+    try:
+        names = india.get_names() if market == "india" else us.get_names()
+        q = (names.get(sym.upper()) or sym) + " stock"
+        gl = "IN" if market == "india" else "US"
+        r = requests.get("https://news.google.com/rss/search",
+                         params={"q": q, "hl": f"en-{gl}", "gl": gl, "ceid": f"{gl}:en"},
+                         headers=earnings._UA, timeout=12)
+        items = []
+        for it in ET.fromstring(r.content).findall(".//item")[:8]:
+            pub = it.findtext("pubDate")
+            try:
+                pub = pd.to_datetime(pub).isoformat()
+            except Exception:
+                pub = None
+            items.append({"title": (it.findtext("title") or "")[:160],
+                          "link": it.findtext("link") or "",
+                          "source": (it.findtext("source") or "")[:40],
+                          "published": pub})
+        _NEWS_CACHE[key] = {"at": time.time(), "items": items}
+        return items
+    except Exception:
+        return hit["items"] if hit else []
 
 
 def _best_sig(row):
@@ -679,6 +736,8 @@ def refresh_market(market, on_progress=None):
     except Exception:
         print("  WARNING: the index-scan step failed — the Index tab keeps its previous scan:")
         traceback.print_exc()
+    _say("Updating the earnings calendar …")
+    earnings.refresh_earnings(market)          # keeps its previous cache on any failure
     _say("Updating the forward test …")
     try:
         forward_standings(market)

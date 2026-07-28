@@ -196,6 +196,22 @@
             background:var(--accent); border-radius:5px; padding:2px 5px; margin-left:6px;
             vertical-align:2px; }
   .volx { color:var(--orange); font-weight:700; }
+  /* shared chip grid (Index Scanner constituents, Earnings calendar) + news list */
+  .memhead { font-size:11px; letter-spacing:.5px; text-transform:uppercase;
+             color:var(--muted); margin:10px 0 6px; }
+  .memwrap { display:flex; flex-wrap:wrap; gap:6px; }
+  .mem { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 9px;
+         border:1px solid var(--border); border-radius:8px; background:var(--card);
+         text-decoration:none; }
+  .mem b { font-weight:700; }
+  .mem:hover { border-color:var(--accent); }
+  .mem.hassig { border-color:var(--accent); background:var(--accent-soft); }
+  .mem .badge { min-width:auto; padding:2px 7px; font-size:10px; }
+  .newsbox { display:flex; flex-direction:column; gap:7px; font-size:12.5px;
+             white-space:normal; max-width:920px; }
+  .newsbox a { text-decoration:none; font-weight:600; }
+  .newsbox a:hover { color:var(--accent-deep); text-decoration:underline; }
+  .newsbox .src { color:var(--muted); font-weight:400; font-size:11.5px; }
   .pos { color:var(--accent-deep); } .neg { color:var(--red); }
   .err { color:var(--red); } .muted { color:var(--muted); }
   tr.detail td { background:var(--bg) !important; white-space:normal; cursor:default; }
@@ -247,6 +263,7 @@
   <div class="navrow">
     <a class="tab {% if page == 'scanner' %}on{% endif %}" href="/scanner?market={{ market }}">Scanner</a>
     <a class="tab {% if page == 'indexes' %}on{% endif %}" href="/indexes?market={{ market }}">Index Scanner</a>
+    <a class="tab {% if page == 'earnings' %}on{% endif %}" href="/earnings?market={{ market }}">Earnings</a>
     <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active Trades</a>
     <a class="tab {% if page == 'targets' %}on{% endif %}" href="/targets?market={{ market }}">Target Hits</a>
     <a class="tab {% if page == 'stops' %}on{% endif %}" href="/stops?market={{ market }}">Stop Hits</a>

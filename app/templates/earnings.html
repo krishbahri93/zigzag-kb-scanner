@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .daygrp { background:var(--card); border:1px solid var(--border); border-radius:12px;
+            padding:12px 14px; margin-bottom:12px; box-shadow:var(--shadow); }
+  .daygrp.today { border-color:var(--accent); }
+  .dayhead { display:flex; align-items:baseline; gap:10px; margin-bottom:9px; }
+  .dayhead .d { font-size:14.5px; font-weight:800; }
+  .dayhead .tag { font-size:10px; font-weight:800; letter-spacing:.5px; color:#fff;
+                  background:var(--accent); border-radius:5px; padding:2px 7px; }
+  .dayhead .n { margin-left:auto; font-size:12px; color:var(--muted); }
+  .mem .co { color:var(--muted); font-weight:400; font-size:11px; }
+</style>
+<div class="meta" id="meta">Loading the earnings calendar …</div>
+
+<div class="toolbar">
+  <span class="swingchips" id="fchips"></span>
+  <input type="text" id="fQ" placeholder="Search symbol…">
+</div>
+
+<div id="days"></div>
+
+<p class="foot">Results dates from the exchanges (NSE board meetings / Nasdaq calendar),
+refreshed with every close run. <b>Highlighted chips are stocks our scanner is live on</b> —
+a result date on one of your names is a hold-through-or-book decision to make BEFORE the
+announcement. Informational only — not financial advice.</p>
+
+<script>
+(function () {
+  const K = window.KWM, $ = id => document.getElementById(id);
+  let rows = [];
+  const F = { mine: false, q: "" };
+
+  const badgeCls = s => s === "Triggered" ? "b-trig" : s === "In Zone" ? "b-zone"
+                     : s === "Active" ? "b-act" : s === "Approaching" ? "b-appr" : "";
+
+  function dayLabel(iso) {
+    const d = new Date(iso + "T00:00:00");
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((d - today) / 86400000);
+    const tag = diff === 0 ? "TODAY" : diff === 1 ? "TOMORROW" : "";
+    return { text: K.fmtDate(iso), tag };
+  }
+
+  function render() {
+    const vis = rows.filter(r =>
+      (!F.mine || r.sig) &&
+      (!F.q || r.sym.toUpperCase().includes(F.q.toUpperCase())));
+
+    $("fchips").innerHTML =
+      `<span class="chip ${!F.mine ? "on" : ""}" data-m="0">All</span>` +
+      `<span class="chip ${F.mine ? "on" : ""}" data-m="1">⭐ My setups &amp; trades</span>`;
+    document.querySelectorAll("#fchips .chip").forEach(el => el.onclick = () => {
+      F.mine = el.dataset.m === "1"; render();
+    });
+
+    const byDate = {};
+    vis.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
+    const dates = Object.keys(byDate).sort();
+
+    $("days").innerHTML = dates.map(d => {
+      const lbl = dayLabel(d);
+      const chips = byDate[d].map(r => {
+        const co = r.name ? `<span class="co">${r.name.slice(0, 26)}</span>` : "";
+        const b = r.sig ? `<span class="badge ${badgeCls(r.sig)}">${r.sig}</span>` : "";
+        return `<a class="mem ${r.sig ? "hassig" : ""}" target="_blank" rel="noopener"
+          href="${K.tv(r.sym)}"><b>${r.sym}</b>${co}${b}</a>`;
+      }).join("");
+      return `<div class="daygrp ${lbl.tag === "TODAY" ? "today" : ""}">
+        <div class="dayhead"><span class="d">${lbl.text}</span>
+          ${lbl.tag ? `<span class="tag">${lbl.tag}</span>` : ""}
+          <span class="n">${byDate[d].length} compan${byDate[d].length === 1 ? "y" : "ies"}</span></div>
+        <div class="memwrap">${chips}</div></div>`;
+    }).join("") || `<div class="muted" style="padding:24px;text-align:center">No results
+      ${F.mine ? "on your names " : ""}in the visible window${F.q ? " for this search" : ""}.</div>`;
+  }
+
+  async function load() {
+    let res;
+    try { res = await (await fetch("/api/earnings?market=" + K.MARKET)).json(); }
+    catch (e) { $("meta").textContent = "Could not load the calendar — check the connection."; return; }
+    rows = res.rows || [];
+    if (!rows.length && !res.fetched_at) {
+      $("meta").textContent = "No earnings calendar yet — press Refresh to fetch the first one.";
+      return;
+    }
+    $("meta").innerHTML = `Next 3 weeks · <b>${res.n_total}</b> of our universe report results · ` +
+      `<b>${res.n_with_sig}</b> are names the scanner is live on · calendar updated ${K.rel(res.fetched_at)}`;
+    render();
+  }
+  $("fQ").oninput = e => { F.q = e.target.value; render(); };
+  load();
+  setInterval(load, 10 * 60 * 1000);
+})();
+</script>
+{% endblock %}

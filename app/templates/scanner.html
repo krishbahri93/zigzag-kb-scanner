@@ -176,7 +176,9 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
           <span>Depth <b>${K.nf(t.depth_pct, 1)}%</b></span>
           <span>R:R <b>${K.nf(t.rr)}</b></span>
           <span>${t.sector || ""}</span>
-          <span class="muted">${K.rel(t.confirmed_at)}</span></div>` : ""}
+          <span class="muted">${K.rel(t.confirmed_at)}</span></div>
+          <div class="memhead">Latest news</div>
+          <div class="newsbox nb" data-sym="${t.sym}">Fetching headlines …</div>` : ""}
       </div>`;
     }).join("") || `<div class="muted" style="padding:20px;text-align:center">No setups match the current filters.</div>`;
     document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
@@ -187,6 +189,7 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     });
 
     window._syms = [...new Set(rs.map(t => t.sym))];
+    if (expanded) fillNews(expanded.split(":")[0]);   // lazy headlines for the open row
   }
 
   function detailRow(t) {
@@ -196,7 +199,32 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
           Entry ${K.band(t.entry_lo, t.entry_hi)} · Target ${K.band(t.tp_lo, t.tp_hi)} · Stop ${K.nf(t.sl)}</div>
         <div class="swingbox">Sector: <b>${t.sector || "—"}</b><br>
           B (common low) ${K.nf(t.B)} · data as of ${t.asof}</div>
-      </div></td></tr>`;
+      </div>
+      <div class="memhead">Latest news</div>
+      <div class="newsbox nb" data-sym="${t.sym}">Fetching headlines …</div></td></tr>`;
+  }
+
+  // Lazy per-stock headlines: fetched only when a row is expanded, cached client-side.
+  // Painted into every .nb[data-sym=…] present (desktop row + phone card share this).
+  const NEWSCACHE = {};
+  function paintNews(sym) {
+    const els = document.querySelectorAll(`.nb[data-sym="${CSS.escape(sym)}"]`);
+    if (!els.length) return;
+    const items = NEWSCACHE[sym];
+    const html = !items ? "Fetching headlines …"
+      : !items.length ? `<span class="muted">No recent headlines found.</span>`
+      : items.map(n => `<span><a href="${n.link}" target="_blank" rel="noopener">${n.title}</a>
+          <span class="src">· ${n.source || "news"}${n.published ? " · " + K.rel(n.published) : ""}</span></span>`).join("");
+    els.forEach(el => { el.innerHTML = html; });
+  }
+  async function fillNews(sym) {
+    if (sym in NEWSCACHE) { paintNews(sym); return; }
+    paintNews(sym);
+    try {
+      const res = await (await fetch(`/api/news?market=${K.MARKET}&sym=${encodeURIComponent(sym)}`)).json();
+      NEWSCACHE[sym] = res.items || [];
+    } catch (e) { NEWSCACHE[sym] = []; }
+    paintNews(sym);
   }
 
   $("fSector").onchange = e => { F.sector = e.target.value; render(); };
