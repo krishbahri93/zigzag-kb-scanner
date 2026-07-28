@@ -61,6 +61,22 @@ def test_close_settles_pnl_exactly(clean):
         tradebook.close("krish", t["id"], 121.0, "manual")
 
 
+def test_delete_removes_open_or_closed_entries(clean):
+    a = _buy(sym="AAA")
+    b = _buy(sym="BBB")
+    tradebook.close("krish", b["id"], 120.0, "target")
+    removed = tradebook.delete("krish", a["id"])           # open entry
+    assert removed["sym"] == "AAA"
+    removed = tradebook.delete("krish", b["id"])           # closed entry
+    assert removed["exit_reason"] == "target"
+    assert tradebook._load("krish") == []
+    with pytest.raises(ValueError, match="not found"):
+        tradebook.delete("krish", a["id"])                 # already gone
+    _buy(user="mammen", sym="CCC")
+    with pytest.raises(ValueError):                        # per-user isolation
+        tradebook.delete("krish", tradebook._load("mammen")[0]["id"])
+
+
 def test_close_validates_reason(clean):
     t = _buy()
     with pytest.raises(ValueError):

@@ -157,6 +157,16 @@ async def api_tradebook_close(request: Request):
         return JSONResponse({"ok": False, "msg": str(e)[:200]}, status_code=400)
 
 
+@app.post("/api/tradebook/delete")
+async def api_tradebook_delete(request: Request):
+    try:
+        p = await request.json()
+        removed = tradebook.delete(_auth_user(request), p["id"])
+        return JSONResponse({"ok": True, "removed": service._json_safe(removed)})
+    except Exception as e:
+        return JSONResponse({"ok": False, "msg": str(e)[:200]}, status_code=400)
+
+
 @app.get("/indices")
 def indices_page(request: Request, market: str = "india"):
     """Indices reference: EVERY index with its constituents on a dropdown."""

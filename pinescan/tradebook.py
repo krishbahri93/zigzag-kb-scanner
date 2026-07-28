@@ -156,6 +156,18 @@ def close(user, trade_id, exit_price, reason):
     raise ValueError("open trade not found")
 
 
+def delete(user, trade_id):
+    """Remove an entry outright — open or closed. For mis-recorded trades; the UI asks
+    for confirmation first because this is permanent (there is no undo file)."""
+    trades = _load(user)
+    kept = [t for t in trades if t["id"] != trade_id]
+    if len(kept) == len(trades):
+        raise ValueError("entry not found")
+    removed = next(t for t in trades if t["id"] == trade_id)
+    _save(user, kept)
+    return removed
+
+
 def listing(user, market):
     """The tab's payload: OPEN positions enriched live + all-time 'my patterns'."""
     from pinescan import service
