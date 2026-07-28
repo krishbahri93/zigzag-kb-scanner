@@ -206,15 +206,28 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
 
   // Lazy per-stock headlines: fetched only when a row is expanded, cached client-side.
   // Painted into every .nb[data-sym=…] present (desktop row + phone card share this).
+  // Server delivers 30-day, newest-first, deduped, keyword-tagged headlines plus the
+  // stock's next results date from our earnings calendar.
   const NEWSCACHE = {};
+  const TAGCLS = { "⚠ Risk": "b-appr", "Results": "b-trig", "M&A": "b-zone",
+                   "Orders": "b-trig", "Broker": "b-act", "Ownership": "b-act" };
   function paintNews(sym) {
     const els = document.querySelectorAll(`.nb[data-sym="${CSS.escape(sym)}"]`);
     if (!els.length) return;
-    const items = NEWSCACHE[sym];
-    const html = !items ? "Fetching headlines …"
-      : !items.length ? `<span class="muted">No recent headlines found.</span>`
-      : items.map(n => `<span><a href="${n.link}" target="_blank" rel="noopener">${n.title}</a>
-          <span class="src">· ${n.source || "news"}${n.published ? " · " + K.rel(n.published) : ""}</span></span>`).join("");
+    const d = NEWSCACHE[sym];
+    let html;
+    if (!d) html = "Fetching headlines …";
+    else {
+      const ed = d.earnings_date
+        ? `<span><span class="badge b-appr">📅 Results ${K.fmtDate(d.earnings_date)}</span>
+             <span class="src">from our earnings calendar — decide hold-through vs book BEFORE this date</span></span>`
+        : "";
+      const rows = !(d.items || []).length
+        ? `<span class="muted">No headlines in the last 30 days.</span>`
+        : d.items.map(n => `<span>${n.tag ? `<span class="badge ${TAGCLS[n.tag] || "b-act"}">${n.tag}</span> ` : ""}<a href="${n.link}" target="_blank" rel="noopener">${n.title}</a>
+            <span class="src">· ${n.source || "news"}${n.published ? " · " + K.rel(n.published) : ""}</span></span>`).join("");
+      html = ed + rows;
+    }
     els.forEach(el => { el.innerHTML = html; });
   }
   async function fillNews(sym) {
@@ -222,8 +235,8 @@ Approaching card to reveal early setups). Trades entered on earlier days live in
     paintNews(sym);
     try {
       const res = await (await fetch(`/api/news?market=${K.MARKET}&sym=${encodeURIComponent(sym)}`)).json();
-      NEWSCACHE[sym] = res.items || [];
-    } catch (e) { NEWSCACHE[sym] = []; }
+      NEWSCACHE[sym] = { items: res.items || [], earnings_date: res.earnings_date || null };
+    } catch (e) { NEWSCACHE[sym] = { items: [], earnings_date: null }; }
     paintNews(sym);
   }
 

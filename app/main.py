@@ -111,9 +111,13 @@ def api_earnings(market: str = "india"):
 
 @app.get("/api/news")
 def api_news(market: str = "india", sym: str = ""):
-    """Latest headlines for one stock (Google News RSS, server-cached ~30 min). Fetched
-    lazily when a scanner row expands — never bulk-polled."""
-    return JSONResponse({"items": service.fetch_news(market, sym) if sym else []})
+    """Recent headlines for one stock (Google News RSS, 30-day window, deduped, tagged,
+    server-cached ~30 min) + the stock's next results date from our earnings calendar.
+    Fetched lazily when a scanner row expands — never bulk-polled."""
+    if not sym:
+        return JSONResponse({"items": [], "earnings_date": None})
+    return JSONResponse({"items": service.fetch_news(market, sym),
+                         "earnings_date": service.next_earnings(market, sym)})
 
 
 @app.get("/active")

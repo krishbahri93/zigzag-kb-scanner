@@ -67,35 +67,95 @@ def test_earnings_payload_tags_live_names(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# news — RSS parse + per-symbol cache
+# news — tagging, dedupe, recency window, fallback, cache
 # ---------------------------------------------------------------------------
-_RSS = b"""<?xml version="1.0"?><rss version="2.0"><channel>
-<item><title>Lodha zooms 9% on results beat</title><link>https://x/1</link>
-<pubDate>Mon, 27 Jul 2026 09:00:00 GMT</pubDate><source url="https://bs">Business Standard</source></item>
-<item><title>Second headline</title><link>https://x/2</link></item>
-</channel></rss>"""
+def test_tag_headline_rules():
+    assert service._tag_headline("Devyani Q1 FY27 profit doubles, revenue up 12%") == "Results"
+    assert service._tag_headline("Devyani, Sapphire shares rise on merger approval") == "M&A"
+    assert service._tag_headline("SEBI probe into XYZ accounting") == "⚠ Risk"
+    assert service._tag_headline("Motilal Oswal sets target price of Rs 165") == "Broker"
+    assert service._tag_headline("Company bags order worth Rs 500 crore") == "Orders"
+    assert service._tag_headline("Promoter pledge falls to 4%") == "Ownership"
+    assert service._tag_headline("Devyani opens 50 new KFC outlets") is None
 
 
-class _Resp:
-    content = _RSS
+def test_dedupe_collapses_rewrites_of_one_story():
+    # Krish's DEVYANI screenshot: three outlets, one merger story -> keep the first.
+    items = [
+        {"title": "Devyani Intl, Sapphire Foods shares rise up to 9% on approval from NSE, BSE for merger - Moneycontrol"},
+        {"title": "Devyani International, Sapphire Foods rally up to 9% on merger approval - Business Standard"},
+        {"title": "Devyani International, Sapphire Foods India shares jumped up to 9% today; here's why - Business Today"},
+        {"title": "Devyani International ESOP Grant Update; Shares Trade Flat - HDFC Sky"},
+    ]
+    kept = service._dedupe_headlines(items)
+    assert len(kept) == 2
+    assert kept[0]["title"].startswith("Devyani Intl, Sapphire")
+    assert kept[1]["title"].startswith("Devyani International ESOP")
 
 
-def test_fetch_news_parses_and_caches(monkeypatch):
-    calls = {"n": 0}
+def _rss(items):
+    rows = "".join(
+        f"<item><title>{t}</title><link>https://x/{i}</link>"
+        + (f"<pubDate>{p}</pubDate>" if p else "")
+        + "<source>Src</source></item>"
+        for i, (t, p) in enumerate(items))
+    return f'<?xml version="1.0"?><rss version="2.0"><channel>{rows}</channel></rss>'.encode()
 
-    def fake_get(*a, **kw):
-        calls["n"] += 1
-        return _Resp()
+
+def test_fetch_news_windows_sorts_and_caches(monkeypatch):
+    calls = []
+
+    class _R:
+        def __init__(self, content):
+            self.content = content
+
+    def fake_get(url, params=None, **kw):
+        calls.append(params["q"])
+        return _R(_rss([
+            ("Old broker note on Lodha - X", "Mon, 01 Jun 2026 09:00:00 GMT"),
+            ("Lodha Q1 profit doubles - Y", "Mon, 27 Jul 2026 09:00:00 GMT"),
+            ("Lodha wins order worth Rs 100 crore - Z", "Sun, 20 Jul 2026 09:00:00 GMT"),
+        ]))
 
     monkeypatch.setattr(service.requests, "get", fake_get)
     monkeypatch.setattr(service.india, "get_names", lambda: {"LODHA": "Macrotech Developers"})
     service._NEWS_CACHE.clear()
 
     items = service.fetch_news("india", "LODHA")
-    assert len(items) == 2
-    assert items[0]["title"].startswith("Lodha zooms")
-    assert items[0]["source"] == "Business Standard"
-    assert items[0]["published"] is not None and items[1]["published"] is None
+    assert calls == ["Macrotech Developers stock when:30d"]      # 30-day window, no fallback
+    assert [i["title"][:9] for i in items] == ["Lodha Q1 ", "Lodha win", "Old broke"]  # newest first
+    assert items[0]["tag"] == "Results" and items[1]["tag"] == "Orders"
 
-    service.fetch_news("india", "LODHA")           # second hit -> cache, no new request
-    assert calls["n"] == 1
+    service.fetch_news("india", "LODHA")                          # cache hit -> no new request
+    assert len(calls) == 1
+
+
+def test_fetch_news_sparse_fallback_widens(monkeypatch):
+    calls = []
+
+    class _R:
+        def __init__(self, content):
+            self.content = content
+
+    def fake_get(url, params=None, **kw):
+        calls.append(params["q"])
+        if "when:" in params["q"]:
+            return _R(_rss([("Only one recent story - X", "Mon, 27 Jul 2026 09:00:00 GMT")]))
+        return _R(_rss([("Older story one - X", "Mon, 01 Mar 2026 09:00:00 GMT"),
+                        ("Older story two about results - Y", "Mon, 01 Feb 2026 09:00:00 GMT"),
+                        ("Older story three entirely different - Z", None)]))
+
+    monkeypatch.setattr(service.requests, "get", fake_get)
+    monkeypatch.setattr(service.india, "get_names", lambda: {})
+    service._NEWS_CACHE.clear()
+
+    items = service.fetch_news("india", "TINYCO")
+    assert len(calls) == 2 and "when:" not in calls[1]            # widened on sparse coverage
+    assert len(items) == 3
+
+
+def test_next_earnings_reads_our_calendar(monkeypatch):
+    monkeypatch.setattr(service.earnings, "read_earnings", lambda market: {
+        "rows": [{"sym": "DEVYANI", "date": "2026-07-29"}]})
+    assert service.next_earnings("india", "devyani") == "2026-07-29"
+    assert service.next_earnings("india", "NOPE") is None

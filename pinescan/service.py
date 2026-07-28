@@ -25,6 +25,7 @@ HOW TO EXTEND
   Both flow through here unchanged.
 """
 import os
+import re
 import glob
 import json
 import math
@@ -369,17 +370,73 @@ def earnings_payload(market):
 # per-(market,symbol) headline cache — the web process is long-lived, 30 min is plenty
 _NEWS_CACHE = {}
 _NEWS_TTL_S = 30 * 60
+_NEWS_WINDOW = "30d"     # ≈ one average holding period — the hold-or-cut horizon
+_NEWS_MAX = 6
+
+# Deterministic headline tags — a scan-at-a-glance triage, not sentiment guessing.
+# First match wins, so the riskier/more specific categories sit first.
+_NEWS_TAGS = [
+    ("⚠ Risk",    ("probe", "investigation", "sebi ", "fraud", "default", "penalty",
+                   "lawsuit", "insolvency", "fire at", "strike", "recall", "downgrade")),
+    ("Results",   ("result", "q1", "q2", "q3", "q4", "profit", "revenue", "earnings",
+                   "ebitda", "net loss")),
+    ("M&A",       ("merger", "acquisition", "acquire", "stake sale", "stake in",
+                   "demerger", "takeover")),
+    ("Orders",    ("order win", "bags order", "wins order", "contract", "order worth",
+                   "loi ")),
+    ("Broker",    ("target price", "upgrade", "rating", "buy call", "initiates coverage",
+                   "overweight", "underweight")),
+    ("Ownership", ("promoter", "block deal", "pledge", "buyback", "dividend", "bonus issue",
+                   "stock split", "fii ", "qip", "rights issue")),
+]
+
+
+def _tag_headline(title):
+    """One category chip per headline via keyword rules (pure; unit-tested)."""
+    t = f" {title.lower()} "
+    for tag, words in _NEWS_TAGS:
+        if any(w in t for w in words):
+            return tag
+    return None
+
+
+def _headline_key(title):
+    """Similarity key for dedupe: significant lowercase tokens of the headline with the
+    trailing '- Publisher' stripped. Two rewrites of one story share most tokens."""
+    body = title.rsplit(" - ", 1)[0].lower()
+    stop = {"the", "a", "an", "of", "to", "in", "on", "for", "and", "as", "at", "up",
+            "by", "with", "after", "amid", "over", "its", "is", "are", "here", "why",
+            "shares", "share", "stock", "stocks"}
+    return {w for w in re.findall(r"[a-z0-9%]+", body) if w not in stop}
+
+
+def _dedupe_headlines(items):
+    """Drop near-identical stories (the '3 outlets, 1 merger' problem), keeping the
+    first (= newest, after the recency sort). Jaccard > 0.4 on significant tokens,
+    compared against every headline SEEN so far (kept or dropped) — rewrites form a
+    chain, and each link may sit closer to a dropped variant than to the kept one."""
+    kept, seen = [], []
+    for it in items:
+        k = _headline_key(it["title"])
+        dup = any(k and prev and len(k & prev) / len(k | prev) > 0.4 for prev in seen)
+        seen.append(k)
+        if not dup:
+            kept.append(it)
+    return kept
 
 
 def fetch_news(market, sym):
-    """Latest headlines for one stock via Google News RSS (no key, verified reachable).
+    """Recent headlines for one stock via Google News RSS (no key, verified reachable).
 
-    Queries by COMPANY NAME (the universe caches store them) rather than the ticker —
-    'Lodha Developers stock' finds news, 'LODHA stock' mostly doesn't. Cached ~30 min per
-    symbol; fetched on demand when a dashboard row expands, so we never bulk-poll 752
-    symbols. Returns [{title, link, source, published}] (≤8), [] on any failure."""
+    Noise controls (Krish, 2026-07-28): the query is restricted to the last
+    _NEWS_WINDOW (Google's `when:` operator) so months-old stories can't surface;
+    results are re-sorted NEWEST-first (Google's default is relevance — that's how a
+    190-day-old article topped a list); near-duplicate headlines are collapsed; capped
+    at _NEWS_MAX. Sparse-coverage fallback: fewer than 3 recent items -> re-query
+    without the window so illiquid names still show something (age labels make the
+    staleness obvious). Queries by COMPANY NAME — tickers find nothing. Cached ~30 min
+    per symbol; fetched on demand when a row expands. [] on any failure."""
     import time
-    import xml.etree.ElementTree as ET
     key = (market, sym.upper())
     hit = _NEWS_CACHE.get(key)
     if hit and time.time() - hit["at"] < _NEWS_TTL_S:
@@ -387,26 +444,48 @@ def fetch_news(market, sym):
     try:
         names = india.get_names() if market == "india" else us.get_names()
         q = (names.get(sym.upper()) or sym) + " stock"
-        gl = "IN" if market == "india" else "US"
-        r = requests.get("https://news.google.com/rss/search",
-                         params={"q": q, "hl": f"en-{gl}", "gl": gl, "ceid": f"{gl}:en"},
-                         headers=earnings._UA, timeout=12)
-        items = []
-        for it in ET.fromstring(r.content).findall(".//item")[:8]:
-            pub = it.findtext("pubDate")
-            try:
-                ts = pd.to_datetime(pub) if pub else None
-                pub = ts.isoformat() if ts is not None and not pd.isna(ts) else None
-            except Exception:
-                pub = None
-            items.append({"title": (it.findtext("title") or "")[:160],
-                          "link": it.findtext("link") or "",
-                          "source": (it.findtext("source") or "")[:40],
-                          "published": pub})
+        items = _news_query(market, f"{q} when:{_NEWS_WINDOW}")
+        if len(items) < 3:                       # sparse coverage — widen the net
+            items = _news_query(market, q)
+        items.sort(key=lambda i: i["published"] or "", reverse=True)
+        items = _dedupe_headlines(items)[:_NEWS_MAX]
         _NEWS_CACHE[key] = {"at": time.time(), "items": items}
         return items
     except Exception:
         return hit["items"] if hit else []
+
+
+def _news_query(market, q):
+    """One Google News RSS request -> parsed items (title/link/source/published/tag)."""
+    import xml.etree.ElementTree as ET
+    gl = "IN" if market == "india" else "US"
+    r = requests.get("https://news.google.com/rss/search",
+                     params={"q": q, "hl": f"en-{gl}", "gl": gl, "ceid": f"{gl}:en"},
+                     headers=earnings._UA, timeout=12)
+    items = []
+    for it in ET.fromstring(r.content).findall(".//item")[:20]:
+        pub = it.findtext("pubDate")
+        try:
+            ts = pd.to_datetime(pub) if pub else None
+            pub = ts.isoformat() if ts is not None and not pd.isna(ts) else None
+        except Exception:
+            pub = None
+        title = (it.findtext("title") or "")[:160]
+        items.append({"title": title,
+                      "link": it.findtext("link") or "",
+                      "source": (it.findtext("source") or "")[:40],
+                      "published": pub,
+                      "tag": _tag_headline(title)})
+    return items
+
+
+def next_earnings(market, sym):
+    """The stock's next results date from OUR cached calendar, or None — the single
+    most decision-relevant 'news' there is, surfaced at the top of the news panel."""
+    for r in earnings.read_earnings(market).get("rows", []):
+        if r.get("sym") == sym.upper():
+            return r["date"]
+    return None
 
 
 def _best_sig(row):
