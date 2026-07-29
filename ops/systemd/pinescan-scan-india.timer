@@ -1,7 +1,10 @@
 [Unit]
-Description=Every 15 min 09:00-15:45 IST weekdays; off-hours ticks are no-ops (full close run = pinescan-close-india 15:55)
+Description=Ticks: pre-market heals every 30 min 06:00-08:30, live scans every 15 min 09:00-15:45 IST weekdays (full close run = pinescan-close-india 15:55)
 
 [Timer]
+# Pre-market runs exist for the SELF-HEAL: Dhan publishes EOD candles overnight, and
+# early risers (Krish, ~07:00) must see yesterday's true closes, not the day-before's.
+OnCalendar=Mon..Fri *-*-* 06..08:0/30:00
 OnCalendar=Mon..Fri *-*-* 09..15:0/15:00
 Persistent=false
 

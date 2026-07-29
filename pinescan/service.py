@@ -242,8 +242,19 @@ def _display_scan_live(market):
     return _is_behind(data_status(market)["last_date"], _expected_asof(market))
 
 
-# Once-a-day guard for the morning self-heal (see _self_heal_official_bars).
+# Retry guard for the self-heal (see _self_heal_official_bars).
 _SELFHEAL_STATE = "data/status/selfheal.json"
+
+
+def _heal_due(s, now_ts=None):
+    """May another heal attempt run? Time-spaced retries instead of a hard daily cap:
+    Dhan publishes EOD candles at unpredictable overnight hours, so the pre-market
+    ticks (06:00-08:30) keep retrying every ≥40 min until the bars land — bounded at
+    8 attempts/day so a genuine holiday costs a handful of cheap sweeps, never a loop.
+    (The old 2/day guard with an 11:00 gate starved exactly this morning window.)"""
+    if now_ts is None:
+        now_ts = dt.datetime.now().timestamp()
+    return s["attempts"] < 8 and now_ts - (s.get("last") or 0) >= 40 * 60
 
 
 def _self_heal_official_bars(market):
@@ -267,10 +278,11 @@ def _self_heal_official_bars(market):
     except Exception:
         s = {}
     if s.get("date") != today:
-        s = {"date": today, "attempts": 0}
-    if s["attempts"] >= 2 or (s["attempts"] == 1 and dt.datetime.now().hour < 11):
+        s = {"date": today, "attempts": 0, "last": 0.0}
+    if not _heal_due(s):
         return
     s["attempts"] += 1
+    s["last"] = dt.datetime.now().timestamp()
     os.makedirs(os.path.dirname(_SELFHEAL_STATE), exist_ok=True)
     io_safe.atomic_write_text(_SELFHEAL_STATE, json.dumps(s))
     print(f"  self-heal: official cache {st['last_date']} < expected {exp} — topping up …")

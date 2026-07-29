@@ -158,10 +158,34 @@ def test_quote_prefers_intraday_when_cache_is_stale(tmp_path, monkeypatch):
     fresh = pd.DataFrame({"Close": [392.35]}, index=pd.DatetimeIndex([dt.date.today()]))
     from pinescan.markets import india
     monkeypatch.setattr(india, "get_intraday", lambda s: fresh)
+    monkeypatch.setattr(india, "_fetch_dhan_daily", lambda s, days=8: None)
     assert tradebook._quote("india", "JKPAPER") == 392.35   # today's truth wins
     # intraday unavailable (pre-open) -> yesterday's official close is the honest latest
     monkeypatch.setattr(india, "get_intraday", lambda s: None)
     assert tradebook._quote("india", "JKPAPER") == 414.55
+
+
+def test_quote_premarket_fetches_fresh_officials(tmp_path, monkeypatch):
+    # 07:00 window: scan is a day behind, intraday empty (market not open), but Dhan
+    # published officials overnight — one direct fetch must surface yesterday's TRUE close.
+    import datetime as dt
+    monkeypatch.chdir(tmp_path)
+    yday = dt.date.today() - dt.timedelta(days=1)
+    monkeypatch.setattr(tradebook, "_scan_row",
+                        lambda m, s: {"ltp": 414.55, "asof": str(yday - dt.timedelta(days=1))})
+    from pinescan.markets import india
+    monkeypatch.setattr(india, "get_intraday", lambda s: None)
+    officials = pd.DataFrame({"Close": [394.70]}, index=pd.DatetimeIndex([yday]))
+    monkeypatch.setattr(india, "_fetch_dhan_daily", lambda s, days=8: officials)
+    assert tradebook._quote("india", "JKPAPER") == 394.70
+
+
+def test_heal_due_spacing_and_cap():
+    now = 1_000_000.0
+    assert service._heal_due({"attempts": 0, "last": 0}, now) is True
+    assert service._heal_due({"attempts": 1, "last": now - 10 * 60}, now) is False   # too soon
+    assert service._heal_due({"attempts": 1, "last": now - 41 * 60}, now) is True    # spaced out
+    assert service._heal_due({"attempts": 8, "last": now - 120 * 60}, now) is False  # daily cap
 
 
 def test_quote_distrusts_stale_scan_ltp(tmp_path, monkeypatch):
@@ -182,10 +206,11 @@ def test_quote_distrusts_stale_scan_ltp(tmp_path, monkeypatch):
     monkeypatch.setattr(india, "get_intraday",
                         lambda s: (_ for _ in ()).throw(AssertionError("must not call")))
     assert tradebook._quote("india", "JKPAPER") == 393.1
-    # stale scan + intraday down -> stale ltp beats nothing
+    # stale scan + intraday AND officials down -> stale ltp beats nothing
     monkeypatch.setattr(tradebook, "_scan_row",
                         lambda m, s: {"ltp": 414.55, "asof": yday})
     monkeypatch.setattr(india, "get_intraday", lambda s: None)
+    monkeypatch.setattr(india, "_fetch_dhan_daily", lambda s, days=8: None)
     monkeypatch.setattr(tradebook.io_safe, "read_parquet_safe", lambda fp: None)
     assert tradebook._quote("india", "JKPAPER") == 414.55
 

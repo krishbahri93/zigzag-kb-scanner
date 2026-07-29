@@ -82,6 +82,17 @@ def _quote(market, sym):
                 return float(p["Close"].iloc[-1])
         except Exception:
             pass
+        # Pre-market (intraday empty for a day that hasn't started): one direct official
+        # fetch — Dhan publishes EOD overnight, hours before our first scheduled heal
+        # could historically run. Held stocks deserve yesterday's TRUE close at 07:00.
+        try:
+            d = india._fetch_dhan_daily(sym, days=8)
+            if d is not None and len(d):
+                row_asof = str(r.get("asof") or "") if r else ""
+                if str(d.index[-1].date()) > row_asof:
+                    return float(d["Close"].iloc[-1])
+        except Exception:
+            pass
     if r and r.get("ltp"):
         return float(r["ltp"])                    # stale scan price beats nothing
     if market == "india":
