@@ -1,8 +1,18 @@
 [Unit]
-Description=Daily 08:30 IST Dhan token refresh (server TZ is Asia/Kolkata)
+Description=Dhan token refresh — retries across the morning until one mint succeeds (server TZ Asia/Kolkata)
 
 [Timer]
-OnCalendar=*-*-* 08:30:00
+# Fires SEVERAL times, not once: the script is idempotent (skips once today's token is
+# minted), so the first success wins and the rest are instant no-ops. This is the fix for
+# the 2026-09-15/16 outage — a single "Invalid TOTP" at the 08:30 cron peak used to leave a
+# dead token for the whole day; now a flaky window is retried automatically within 20 min,
+# and the late-morning fires catch a sustained peak-load spell.
+OnCalendar=*-*-* 08:15:00
+OnCalendar=*-*-* 08:35:00
+OnCalendar=*-*-* 08:55:00
+OnCalendar=*-*-* 09:15:00
+OnCalendar=*-*-* 10:30:00
+OnCalendar=*-*-* 12:30:00
 Persistent=true
 
 [Install]

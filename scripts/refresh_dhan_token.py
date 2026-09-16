@@ -64,7 +64,21 @@ def _extract_token(resp):
 
 
 def main():
+    import datetime as dt
+    force = "--force" in sys.argv
     creds = _read_creds(CREDS_FILE)
+
+    # Idempotent by design: the timer fires SEVERAL times across the morning (08:15,
+    # 08:35, … 12:30) so one flaky 08:30 mint can't kill the whole trading day — the
+    # 2026-09-15/16 outage, where a single "Invalid TOTP" at peak load left a dead
+    # token for 3 sessions. Once a mint succeeds, DHAN_TOKEN_DATE records today's date
+    # and every later fire that day is an instant no-op (0 API calls). `--force`
+    # overrides, for a manual re-mint.
+    today = str(dt.date.today())
+    if not force and creds.get("DHAN_TOKEN_DATE") == today and creds.get("DHAN_ACCESS_TOKEN"):
+        print(f"  token already minted today ({today}); nothing to do.")
+        return
+
     vals = {k: os.environ.get(k, creds.get(k)) for k in _REQUIRED}   # env wins over file
     missing = [k for k in _REQUIRED if not vals[k]]
     if missing:
@@ -84,8 +98,11 @@ def main():
     login = DhanLogin(vals["DHAN_CLIENT_ID"])
     token, last = None, None
     # TOTP codes live ~30s and Dhan rejects boundary/replayed codes ("Invalid TOTP") — seen in the
-    # wild with a synced clock. On failure, sleep into the NEXT code window and try a fresh code.
-    for attempt in range(1, 4):
+    # wild with a synced clock. It ALSO returns "Invalid TOTP" when its auth endpoint is overloaded
+    # at the 08:30 cron peak even for a valid code (proven: same secret mints instantly off-peak).
+    # So we try 6 fresh codes across ~3 min — long enough to ride out a transient load spike — and
+    # the retry-timer's later fires cover a sustained one.
+    for attempt in range(1, 7):
         resp = login.generate_token(vals["DHAN_PIN"], totp.now())
         token = _extract_token(resp)
         if token:
@@ -93,20 +110,21 @@ def main():
         last = resp
         if "every 2 minutes" in str(last):           # Dhan's mint cooldown — wait it out
             wait = 125
-        else:                                        # boundary/replayed code — next TOTP window
+        else:                                        # boundary/replayed/overloaded — next window
             wait = 30 - (time.time() % 30) + 1
         print(f"  attempt {attempt} failed ({str(last)[:80]}); retrying in {wait:.0f}s …")
         time.sleep(wait)
     if not token:
-        sys.exit(f"generate_token returned no recognizable access token after 3 attempts: {str(last)[:200]}")
+        sys.exit(f"generate_token returned no recognizable access token after 6 attempts: {str(last)[:200]}")
 
     # Rewrite .dhan_creds: replace (or add) DHAN_ACCESS_TOKEN, keep the secrets so the file stays
     # self-contained for the next refresh. Known keys first (stable order), then any extras.
     creds["DHAN_CLIENT_ID"] = vals["DHAN_CLIENT_ID"]
     creds["DHAN_ACCESS_TOKEN"] = token
+    creds["DHAN_TOKEN_DATE"] = today            # marks today done -> later timer fires are no-ops
     creds.setdefault("DHAN_PIN", vals["DHAN_PIN"])
     creds.setdefault("DHAN_TOTP_SECRET", vals["DHAN_TOTP_SECRET"])
-    order = ["DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN", "DHAN_PIN", "DHAN_TOTP_SECRET"]
+    order = ["DHAN_CLIENT_ID", "DHAN_ACCESS_TOKEN", "DHAN_TOKEN_DATE", "DHAN_PIN", "DHAN_TOTP_SECRET"]
     lines = [f"{k}={creds[k]}" for k in order if k in creds]
     lines += [f"{k}={v}" for k, v in creds.items() if k not in order]
     # Atomic write (temp -> fsync -> os.replace): the long-lived web process watches this file's
