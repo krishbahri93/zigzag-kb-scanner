@@ -59,6 +59,10 @@ including R (profit so far in units of the initial risk). Informational only —
             : k === "_r" ? rMult(t) : k === "_since" ? since(t)
             : k === "_totp" ? toTp(t) : k === "_sl" ? t.sl : t[k];
   const key = t => t.sym + ":" + t.swing;
+  const WINLBL = { 1: "the last 24 hours", 2: "the last 48 hours", 5: "the last 5 days" };
+  const emptyMsg = () => F.win ? `No trades were activated in ${WINLBL[F.win]}.`
+      : (F.near || F.swing || F.sector || F.q) ? "No active trades match the current filters."
+      : "No active trades right now.";
 
   function visible() {
     return trades.filter(t =>
@@ -139,7 +143,7 @@ including R (profit so far in units of the initial risk). Informational only —
         <td class="muted">${t.entry_date || "—"}</td>
         <td>${t.bars_in_state ?? "—"}</td>
       </tr>` + (expanded === key(t) ? detailRow(t) : "");
-    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">No active trades right now.</td></tr>`;
+    }).join("") || `<tr><td colspan="11" class="muted" style="padding:24px;text-align:center">${emptyMsg()}</td></tr>`;
 
     document.querySelectorAll("tr.datarow").forEach(tr => tr.onclick = e => {
       if (e.target.closest("a")) return;
@@ -173,7 +177,7 @@ including R (profit so far in units of the initial risk). Informational only —
           <span>To target <b>${toTp(t) === null ? "—" : "+" + K.nf(toTp(t), 1) + "%"}</b></span>
           <span>${t.sector || ""}</span></div>` : ""}
       </div>`;
-    }).join("") || `<div class="muted" style="padding:20px;text-align:center">No active trades right now.</div>`;
+    }).join("") || `<div class="muted" style="padding:20px;text-align:center">${emptyMsg()}</div>`;
     document.querySelectorAll(".mcard").forEach(el => el.onclick = e => {
       if (e.target.closest("a")) return;
       const t = rs[Number(el.dataset.i)];
