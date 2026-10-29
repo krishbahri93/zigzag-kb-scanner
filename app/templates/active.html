@@ -38,8 +38,8 @@ including R (profit so far in units of the initial risk). Informational only —
     { k: "entry_date", t: "Entered On" },
     { k: "_days",      t: "Bars Held"  },
   ];
-  let trades = [], sortK = "_since", sortDir = -1, expanded = null;
-  const F = { sector: "", swing: "", q: "", near: "" };
+  let trades = [], sortK = "_since", sortDir = -1, expanded = null, ASOF = null;
+  const F = { sector: "", swing: "", q: "", near: "", win: 0 };
 
   const rMult  = t => (t.entry_hi && t.sl && t.entry_hi > t.sl && t.ltp !== null)
       ? (t.ltp - t.entry_hi) / (t.entry_hi - t.sl) : null;
@@ -47,6 +47,14 @@ including R (profit so far in units of the initial risk). Informational only —
   const toTp   = t => (t.tp_lo && t.ltp) ? (t.tp_lo / t.ltp - 1) * 100 : null;
   const nearSL = t => (t.sl && t.ltp !== null) && t.ltp <= t.sl * 1.03;
   const nearTP = t => { const x = toTp(t); return x !== null && x <= 3; };
+  // days since the trade's entry fired, vs the scan's "as of" date — drives the recency
+  // windows (24h/48h/5d) for "what did I get activated into lately". Weekend-robust enough
+  // for a daily system; null when we can't date it.
+  const daysSince = t => {
+    if (!t.entry_date || !ASOF) return null;
+    return Math.round((new Date(ASOF + "T00:00:00") - new Date(t.entry_date + "T00:00:00")) / 86400000);
+  };
+  const inWin = (t, w) => { const d = daysSince(t); return d !== null && d >= 0 && d <= w; };
   const val = (t, k) => k === "_days" ? t.bars_in_state : k === "_entry" ? t.entry_hi
             : k === "_r" ? rMult(t) : k === "_since" ? since(t)
             : k === "_totp" ? toTp(t) : k === "_sl" ? t.sl : t[k];
@@ -55,6 +63,7 @@ including R (profit so far in units of the initial risk). Informational only —
   function visible() {
     return trades.filter(t =>
       (!F.near || (F.near === "sl" ? nearSL(t) : nearTP(t))) &&
+      (!F.win || inWin(t, F.win)) &&
       (!F.swing || t.swing === F.swing) &&
       (!F.sector || t.sector === F.sector) &&
       (!F.q || t.sym.toUpperCase().includes(F.q.toUpperCase())));
@@ -68,18 +77,31 @@ including R (profit so far in units of the initial risk). Informational only —
       return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir;
     });
 
-    // top cards: quick track of trades nearing an exit, either way
+    // top cards: recency windows (what got activated lately) + exit-proximity track.
+    // win cards carry data-w (a day window); near cards carry data-f. c[2] = {w} or {f}.
     const C = [
-      ["All active",          trades.length,                 "",   ""      ],
-      ["🎯 Approaching target", trades.filter(nearTP).length, "tp", "v-trig"],
-      ["🛑 Approaching stop",   trades.filter(nearSL).length, "sl", "v-appr"],
+      ["All active",           trades.length,                      {f: ""}, ""      ],
+      ["⏱ Last 24 hours",      trades.filter(t => inWin(t, 1)).length, {w: 1}, "v-fresh"],
+      ["⏱ Last 48 hours",      trades.filter(t => inWin(t, 2)).length, {w: 2}, "v-zone" ],
+      ["⏱ Last 5 days",        trades.filter(t => inWin(t, 5)).length, {w: 5}, "v-vol"  ],
+      ["🎯 Approaching target", trades.filter(nearTP).length,          {f: "tp"}, "v-trig"],
+      ["🛑 Approaching stop",   trades.filter(nearSL).length,          {f: "sl"}, "v-appr"],
     ];
-    $("cards").innerHTML = C.map(c =>
-      `<div class="kcard ${c[3]} ${c[2] && F.near === c[2] ? "on" : ""}" data-f="${c[2]}">
-        <div class="lbl">${c[0]}</div><div class="val">${c[1]}</div></div>`).join("");
+    $("cards").innerHTML = C.map(c => {
+      const on = (c[2].w && F.win === c[2].w) || (c[2].f && F.near === c[2].f);
+      const attr = c[2].w ? `data-w="${c[2].w}"` : `data-f="${c[2].f}"`;
+      return `<div class="kcard ${c[3]} ${on ? "on" : ""}" ${attr}>
+        <div class="lbl">${c[0]}</div><div class="val">${c[1]}</div></div>`;
+    }).join("");
     document.querySelectorAll(".kcard").forEach(el => el.onclick = () => {
-      const f = el.dataset.f;
-      F.near = (f && F.near !== f) ? f : "";
+      if (el.dataset.w !== undefined) {             // a recency-window card
+        const w = Number(el.dataset.w);
+        F.win = (F.win === w) ? 0 : w;
+      } else {                                       // All active / near-exit cards
+        const f = el.dataset.f;
+        F.near = (f && F.near !== f) ? f : "";
+        if (!f) F.win = 0;                           // "All active" clears the window too
+      }
       render();
     });
 
@@ -183,6 +205,7 @@ including R (profit so far in units of the initial risk). Informational only —
     try { res = await K.fetchScan(); }
     catch (e) { $("meta").textContent = "Could not load the scan — check the connection and refresh."; return; }
     if (!res.scan) { $("meta").textContent = "No scan yet — press Refresh on the Scanner tab."; return; }
+    ASOF = res.scan.data_asof;                       // reference date for the recency windows
     trades = K.flatten(res.scan).filter(t => t.sig === "Active");
     const warn = trades.filter(nearSL).length;
     $("meta").innerHTML = `Data as of ${K.fmtDate(res.scan.data_asof)} · <b>${trades.length}</b> active trades` +

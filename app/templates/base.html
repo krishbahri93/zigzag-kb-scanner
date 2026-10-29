@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KWM Auto Screener</title>
-{# SVG favicon: emerald KWM mark + rising trend on dark — data URI, no extra request #}
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%230f172a'/%3E%3Cpath d='M13 13 H36 L13 36 Z' fill='%2310b981'/%3E%3Cpath d='M16 50 L30 37 L39 45 L52 22' stroke='%2310b981' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+{# SVG favicon: the authentic K Wealth mark (two triangles) on a dark rounded square #}
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%230f172a'/%3E%3Cpath d='M32 6 L58 32 L32 32 Z' fill='%23545454'/%3E%3Cpath d='M6 32 L32 32 L32 58 Z' fill='%2361C2A2'/%3E%3C/svg%3E">
 <script>
   // set the theme BEFORE first paint (no flash). Light is the default.
   document.documentElement.dataset.theme = localStorage.getItem("kwm-theme") || "light";
@@ -117,7 +117,7 @@
   .mast { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; flex-wrap:wrap;
           align-items:center; gap:8px 14px; }
   .brand { display:flex; align-items:baseline; gap:8px; margin-right:auto; text-decoration:none; }
-  .brand .mark { color:var(--accent); font-size:18px; }
+  .brand .mark { width:22px; height:22px; align-self:center; }
   .brand .w1 { font-size:18px; font-weight:800; color:var(--accent-deep); letter-spacing:.2px; }
   .brand .w2 { font-size:18px; font-weight:500; color:var(--text); }
   .brand small { color:var(--muted); font-size:12px; }
@@ -254,7 +254,11 @@
 <header>
   <div class="mast">
     <a class="brand" href="/scanner?market={{ market }}">
-      <span class="mark">◤</span><span class="w1">KWM</span><span class="w2">Auto Screener</span>
+      {# authentic K Wealth mark (two triangles), lifted from kwealth.in #}
+      <svg class="mark" viewBox="0 0 225 225" role="img" aria-label="K Wealth" xmlns="http://www.w3.org/2000/svg">
+        <path d="M112.5 0 L225 112.5 L112.5 112.5 Z" fill="#545454"/>
+        <path d="M0 112.5 L112.5 112.5 L112.5 225 Z" fill="#61C2A2"/>
+      </svg><span class="w1">KWM</span><span class="w2">Auto Screener</span>
       <small>Daily Setup | Long Only</small>
     </a>
     <span class="live"><span class="dot" id="livedot"></span><span id="livetxt">LIVE</span>
@@ -272,7 +276,7 @@
     <a class="tab {% if page == 'indexes' %}on{% endif %}" href="/indexes?market={{ market }}">Index Scanner</a>
     <a class="tab {% if page == 'indices' %}on{% endif %}" href="/indices?market={{ market }}">Indices</a>
     <a class="tab {% if page == 'earnings' %}on{% endif %}" href="/earnings?market={{ market }}">Earnings</a>
-    <a class="tab {% if page == 'tradebook' %}on{% endif %}" href="/tradebook?market={{ market }}">My TradeBook</a>
+    {# My TradeBook tab hidden at Krish's request (2026-10-29); /tradebook route kept intact for easy restore #}
     <a class="tab {% if page == 'active' %}on{% endif %}" href="/active?market={{ market }}">Active Trades</a>
     <a class="tab {% if page == 'targets' %}on{% endif %}" href="/targets?market={{ market }}">Target Hits</a>
     <a class="tab {% if page == 'stops' %}on{% endif %}" href="/stops?market={{ market }}">Stop Hits</a>
