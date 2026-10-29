@@ -8,4 +8,9 @@ Type=oneshot
 User=pinescan
 WorkingDirectory=/opt/pinescan
 ExecStart=/opt/pinescan/scripts/job_wrapper.sh close-india /opt/pinescan/venv/bin/python scripts/forward_run.py --market india
-TimeoutStartSec=3600
+# 2.5h, not 1h: the run starts 15:55 and the publish-wait retries Dhan's (often late) EOD
+# bars until 17:30, so a 1h cap killed the job at 16:55 — after the stock refresh but BEFORE
+# the cheap index-refresh step, leaving the Index Scanner a day stale while stocks were fresh
+# (2026-10-28). The universe grew to ~805 symbols + DH-904 backoff, so the wall time is mostly
+# sleeps (seen: ~4min CPU over the full hour). 2.5h clears the 17:30 publish-wait with margin.
+TimeoutStartSec=9000
