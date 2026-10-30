@@ -178,14 +178,7 @@ def test_quote_premarket_fetches_fresh_officials(tmp_path, monkeypatch):
     officials = pd.DataFrame({"Close": [394.70]}, index=pd.DatetimeIndex([yday]))
     monkeypatch.setattr(india, "_fetch_dhan_daily", lambda s, days=8: officials)
     assert tradebook._quote("india", "JKPAPER") == 394.70
-
-
-def test_heal_due_spacing_and_cap():
-    now = 1_000_000.0
-    assert service._heal_due({"attempts": 0, "last": 0}, now) is True
-    assert service._heal_due({"attempts": 1, "last": now - 10 * 60}, now) is False   # too soon
-    assert service._heal_due({"attempts": 1, "last": now - 41 * 60}, now) is True    # spaced out
-    assert service._heal_due({"attempts": 8, "last": now - 120 * 60}, now) is False  # daily cap
+    # _heal_due spacing/cap is covered authoritatively in test_dhan_resilience.py
 
 
 def test_quote_distrusts_stale_scan_ltp(tmp_path, monkeypatch):
