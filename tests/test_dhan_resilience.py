@@ -50,6 +50,28 @@ def test_is_behind_comparisons():
     assert service._is_behind("2026-07-24", None) is False
 
 
+def test_fresh_fraction_quorum():
+    exp = "2026-10-29"
+    # the 2026-10-30 incident: 1 of 805 updated to Oct-29, the rest stale on Oct-28.
+    # fraction fresh ≈ 0 -> the self-heal must NOT think it's caught up.
+    stale_bulk = ["2026-10-28"] * 804 + ["2026-10-29"]
+    assert service._fresh_fraction(stale_bulk, exp) < 0.7          # bulk still behind
+    # a genuine full refresh — tolerates the ~3 permanently-unmapped stuck symbols
+    fresh = ["2026-10-29"] * 802 + ["2026-10-20"] * 3
+    assert service._fresh_fraction(fresh, exp) >= 0.7              # caught up
+    # Nones (unreadable parquets) are ignored; all-None -> undefined (None)
+    assert service._fresh_fraction([None, None], exp) is None
+    assert service._fresh_fraction([None, "2026-10-29"], exp) == 1.0
+
+
+def test_heal_due_spacing_and_cap():
+    now = 1_000_000.0
+    assert service._heal_due({"attempts": 0, "last": 0}, now) is True
+    assert service._heal_due({"attempts": 1, "last": now - 5 * 60}, now) is False    # <10 min
+    assert service._heal_due({"attempts": 1, "last": now - 11 * 60}, now) is True     # ≥10 min
+    assert service._heal_due({"attempts": 20, "last": now - 60 * 60}, now) is False   # daily cap
+
+
 # ---------------------------------------------------------------------------
 # refresh_recent — classification + the rate-limited second sweep
 # ---------------------------------------------------------------------------

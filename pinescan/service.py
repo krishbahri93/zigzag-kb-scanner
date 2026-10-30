@@ -231,6 +231,39 @@ def _is_behind(last_date, expected):
     return bool(expected) and bool(last_date) and last_date < expected
 
 
+def _fresh_fraction(dates, expected):
+    """Pure: fraction of the given last-bar dates that have reached `expected`. Unit-tested
+    so the quorum logic below is verifiable without touching disk."""
+    seen = [d for d in dates if d]
+    if not seen:
+        return None
+    return sum(1 for d in seen if d >= expected) / len(seen)
+
+
+def _cache_behind(market, sample=40, quorum=0.7):
+    """Robust 'is the BULK of the cache behind the expected session?' — samples symbols
+    and asks whether a quorum has reached `expected`, so one updated (or one permanently
+    stuck/unmapped) symbol can't flip the answer.
+
+    This replaces the newest-file-date check that let the self-heal stop after a rate-
+    limited 1-of-805 refresh: that single Oct-29 file made data_status read 'caught up'
+    while 804 symbols were still a day stale (the 2026-10-30 morning incident). A quorum
+    of <70% fresh means the bulk is behind and the heal must keep going."""
+    exp = _expected_asof(market)
+    if not exp or market != "india":
+        return False
+    import random
+    files = glob.glob(f"{india.CACHE_DIR}/*.parquet")
+    if not files:
+        return False
+    dates = []
+    for f in random.sample(files, min(sample, len(files))):
+        d = io_safe.read_parquet_safe(f)
+        dates.append(str(d.index[-1].date()) if (d is not None and len(d)) else None)
+    frac = _fresh_fraction(dates, exp)
+    return frac is not None and frac < quorum
+
+
 def _display_scan_live(market):
     """Should the DISPLAY scan merge today's intraday bar? True when the official cache
     is behind the expected trading day — i.e. Dhan hasn't published today's EOD candles
@@ -247,14 +280,15 @@ _SELFHEAL_STATE = "data/status/selfheal.json"
 
 
 def _heal_due(s, now_ts=None):
-    """May another heal attempt run? Time-spaced retries instead of a hard daily cap:
-    Dhan publishes EOD candles at unpredictable overnight hours, so the pre-market
-    ticks (06:00-08:30) keep retrying every ≥40 min until the bars land — bounded at
-    8 attempts/day so a genuine holiday costs a handful of cheap sweeps, never a loop.
-    (The old 2/day guard with an 11:00 gate starved exactly this morning window.)"""
+    """May another heal attempt run? Time-spaced retries, not a hard daily cap: Dhan
+    publishes EOD candles at unpredictable overnight hours AND rate-limits hard at the
+    08:30 cron peak (a sweep there got 1/805; the same symbols fetched cleanly minutes
+    later). So heals retry every ≥10 min — short enough to catch Dhan the moment it
+    eases — bounded at 20/day so a genuine holiday costs a bounded run, never a loop.
+    (40-min spacing used to leave the dashboard stale until a human pressed Refresh.)"""
     if now_ts is None:
         now_ts = dt.datetime.now().timestamp()
-    return s["attempts"] < 8 and now_ts - (s.get("last") or 0) >= 40 * 60
+    return s["attempts"] < 20 and now_ts - (s.get("last") or 0) >= 10 * 60
 
 
 def _self_heal_official_bars(market):
@@ -268,9 +302,10 @@ def _self_heal_official_bars(market):
     keeps overlapping ticks out for the ~6 minutes a top-up takes."""
     if market != "india":
         return
-    st = data_status(market)
     exp = _expected_asof(market)
-    if not _is_behind(st["last_date"], exp):
+    # Quorum check, NOT the newest-file date: a rate-limited refresh that updated a single
+    # symbol used to read as "caught up" and stop the heal with 804 symbols still stale.
+    if not _cache_behind(market):
         return
     today = str(dt.date.today())
     try:
@@ -285,12 +320,13 @@ def _self_heal_official_bars(market):
     s["last"] = dt.datetime.now().timestamp()
     os.makedirs(os.path.dirname(_SELFHEAL_STATE), exist_ok=True)
     io_safe.atomic_write_text(_SELFHEAL_STATE, json.dumps(s))
-    print(f"  self-heal: official cache {st['last_date']} < expected {exp} — topping up …")
+    print(f"  self-heal #{s['attempts']}: bulk cache behind expected {exp} — topping up …")
     syms = [os.path.splitext(os.path.basename(f))[0]
             for f in glob.glob(f"{india.CACHE_DIR}/*.parquet")]
     summ = india.refresh_recent(syms, days=15)
     print(f"  self-heal: {summ['updated']}/{summ['total']} updated, "
-          f"newest bar {summ['latest_bar']} on {summ['on_latest']} symbols")
+          f"newest bar {summ['latest_bar']} on {summ['on_latest']} symbols"
+          + (f" · {summ['rate_limited']} rate-limited (will retry next tick)" if summ.get('rate_limited') else ""))
 
 
 def scan_market(market, scanner="nsv2", live=False):
